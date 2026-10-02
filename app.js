@@ -1,0 +1,1329 @@
+/* FlashCard — a simple, elegant flash card app for iPhone.
+ * Plain JavaScript, no build step. Data is saved on the device in IndexedDB
+ * (with a localStorage fallback) and can be exported/imported as a JSON backup.
+ */
+'use strict';
+
+/* =====================================================================
+ * Utilities
+ * ===================================================================*/
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+const now = () => Date.now();
+const MIN = 60 * 1000;
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else if (k === 'svg') el.innerHTML = v; // trusted, static icon markup only
+      else if (v === true) el.setAttribute(k, '');
+      else el.setAttribute(k, v);
+    }
+  }
+  for (const c of children.flat(Infinity)) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+const svg = (body, vb = '0 0 24 24') =>
+  `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+const ICONS = {
+  back: svg('<path d="M15 4l-8 8 8 8" stroke-width="2.6"/>'),
+  chev: svg('<path d="M1.5 1.5l5 5-5 5" stroke-width="2"/>', '0 0 8 13'),
+  folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" stroke="none"/>'),
+  folderPlus: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/>'),
+  compose: svg('<path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/>'),
+  settings: svg('<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>'),
+  more: svg('<circle cx="12" cy="12" r="10" stroke-width="1.8"/><path d="M7.5 12h.01M12 12h.01M16.5 12h.01" stroke-width="2.8"/>'),
+  pen: svg('<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>'),
+  eraser: svg('<path d="M20 20H8l-5-5a2 2 0 0 1 0-2.8L13.2 2a2 2 0 0 1 2.8 0l5 5a2 2 0 0 1 0 2.8L11 20"/><path d="M6 11l7 7"/>'),
+  undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+  redo: svg('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
+  trash: svg('<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'),
+  cards: svg('<rect x="3" y="7" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/>'),
+  exportI: svg('<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>'),
+  importI: svg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>'),
+  shield: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'),
+  info: svg('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>'),
+};
+const icon = (name, cls) => h('span', { class: cls || 'icon', svg: ICONS[name] });
+
+/* =====================================================================
+ * Storage — IndexedDB with localStorage fallback
+ * ===================================================================*/
+const DB_NAME = 'flashcard';
+const LS_KEY = 'flashcard-db';
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('IndexedDB unavailable'));
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbReq(db, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', mode);
+    const r = fn(tx.objectStore('kv'));
+    tx.oncomplete = () => resolve(r && r.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+const Store = {
+  data: null,
+  idb: null,
+  timer: null,
+  saving: Promise.resolve(),
+
+  async load() {
+    try {
+      this.idb = await idbOpen();
+      const d = await idbReq(this.idb, 'readonly', (s) => s.get('db'));
+      if (d) this.data = d;
+    } catch (e) {
+      console.warn('IndexedDB failed, using localStorage', e);
+      this.idb = null;
+    }
+    if (!this.data) {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) this.data = JSON.parse(raw);
+      } catch (e) { /* ignore */ }
+    }
+    const firstRun = !this.data;
+    this.data = normalizeData(this.data || {});
+    if (firstRun) { seed(this.data); await this.flush(); }
+    // Ask the browser to keep our data even when storage is low.
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {});
+    }
+  },
+
+  save() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 300);
+  },
+
+  flush() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    const snapshot = this.data;
+    this.saving = this.saving.then(async () => {
+      if (this.idb) {
+        try {
+          await idbReq(this.idb, 'readwrite', (s) => s.put(snapshot, 'db'));
+          return;
+        } catch (e) { console.warn('IndexedDB write failed', e); }
+      }
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(snapshot));
+      } catch (e) {
+        toast('Could not save — storage is full');
+      }
+    });
+    return this.saving;
+  },
+};
+
+// Make sure pending changes are written when the app is backgrounded/closed.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && Store.timer) Store.flush(); });
+window.addEventListener('pagehide', () => { if (Store.timer) Store.flush(); });
+
+function emptySide() { return { text: '', strokes: [] }; }
+function newSrs() { return { state: 'new', due: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0, last: 0 }; }
+
+function normalizeSide(s) {
+  s = s && typeof s === 'object' ? s : {};
+  return {
+    text: typeof s.text === 'string' ? s.text : '',
+    strokes: Array.isArray(s.strokes) ? s.strokes.filter((st) => st && Array.isArray(st.points)) : [],
+  };
+}
+function normalizeCard(c) {
+  return {
+    id: String(c.id || uid()),
+    folderId: c.folderId != null ? String(c.folderId) : null,
+    front: normalizeSide(c.front),
+    back: normalizeSide(c.back),
+    createdAt: Number(c.createdAt) || now(),
+    updatedAt: Number(c.updatedAt) || now(),
+    srs: Object.assign(newSrs(), c.srs || {}),
+  };
+}
+function normalizeData(d) {
+  const folders = (Array.isArray(d.folders) ? d.folders : [])
+    .filter((f) => f && f.id)
+    .map((f) => ({
+      id: String(f.id),
+      name: String(f.name || 'Untitled'),
+      parentId: f.parentId != null ? String(f.parentId) : null,
+      createdAt: Number(f.createdAt) || now(),
+    }));
+  const ids = new Set(folders.map((f) => f.id));
+  folders.forEach((f) => { if (f.parentId && !ids.has(f.parentId)) f.parentId = null; });
+  const cards = (Array.isArray(d.cards) ? d.cards : [])
+    .filter((c) => c && c.id)
+    .map(normalizeCard)
+    .filter((c) => ids.has(c.folderId));
+  return { version: 1, folders, cards };
+}
+
+function seed(d) {
+  const f = { id: uid(), name: 'Getting Started', parentId: null, createdAt: now() };
+  d.folders.push(f);
+  const items = [
+    ['Tap a card to flip it 👆', 'Then rate how well you knew it.\n\nCards you find hard come back sooner; easy ones come back later.'],
+    ['How do I add a card?', 'Open a folder and tap the ✎ button in the bottom-right corner.'],
+    ['Can I write by hand?', 'Yes! Each side of a card has a drawing pad. Use your finger or Apple Pencil.'],
+    ['How do I edit or delete a card?', 'Tap a card in the folder list to edit it. Delete is at the bottom of the editor, or tap Edit in the folder.'],
+    ['Where is my data saved?', 'Right here on your iPhone, automatically.\n\nUse Settings › Export Backup to keep a copy somewhere safe.'],
+  ];
+  items.forEach(([front, back], i) => {
+    d.cards.push(normalizeCard({ id: uid(), folderId: f.id, front: { text: front }, back: { text: back }, createdAt: now() + i }));
+  });
+}
+
+/* =====================================================================
+ * Model
+ * ===================================================================*/
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+const Model = {
+  get folders() { return Store.data.folders; },
+  get cards() { return Store.data.cards; },
+  folder(id) { return this.folders.find((f) => f.id === id) || null; },
+  card(id) { return this.cards.find((c) => c.id === id) || null; },
+  childFolders(parentId) {
+    return this.folders.filter((f) => f.parentId === parentId).sort((a, b) => collator.compare(a.name, b.name));
+  },
+  cardsIn(folderId) {
+    return this.cards.filter((c) => c.folderId === folderId).sort((a, b) => a.createdAt - b.createdAt);
+  },
+  descendantIds(folderId) {
+    const out = [folderId];
+    for (let i = 0; i < out.length; i++) {
+      this.folders.forEach((f) => { if (f.parentId === out[i]) out.push(f.id); });
+    }
+    return out;
+  },
+  cardsDeep(folderId) {
+    const ids = new Set(this.descendantIds(folderId));
+    return this.cards.filter((c) => ids.has(c.folderId));
+  },
+  path(folderId) {
+    const parts = [];
+    let f = this.folder(folderId);
+    while (f) { parts.unshift(f.name); f = this.folder(f.parentId); }
+    return parts.join(' › ');
+  },
+  /** All folders in tree order, for pickers. */
+  tree(parentId = null, depth = 0, out = []) {
+    this.childFolders(parentId).forEach((f) => { out.push({ folder: f, depth }); this.tree(f.id, depth + 1, out); });
+    return out;
+  },
+  addFolder(name, parentId) {
+    const f = { id: uid(), name, parentId: parentId || null, createdAt: now() };
+    this.folders.push(f);
+    Store.save();
+    return f;
+  },
+  renameFolder(id, name) {
+    const f = this.folder(id);
+    if (f) { f.name = name; Store.save(); }
+  },
+  deleteFolder(id) {
+    const ids = new Set(this.descendantIds(id));
+    Store.data.folders = this.folders.filter((f) => !ids.has(f.id));
+    Store.data.cards = this.cards.filter((c) => !ids.has(c.folderId));
+    Store.save();
+  },
+  addCard(folderId, front, back) {
+    const c = normalizeCard({ id: uid(), folderId, front, back });
+    this.cards.push(c);
+    Store.save();
+    return c;
+  },
+  updateCard(id, patch) {
+    const c = this.card(id);
+    if (!c) return;
+    Object.assign(c, patch, { updatedAt: now() });
+    Store.save();
+  },
+  deleteCard(id) {
+    Store.data.cards = this.cards.filter((c) => c.id !== id);
+    Store.save();
+  },
+};
+
+function sideIsEmpty(s) { return !s.text.trim() && !s.strokes.length; }
+function firstLine(text) { return (text || '').trim().split('\n')[0]; }
+
+/* =====================================================================
+ * Spaced repetition (simplified SM-2, Anki-style buttons)
+ * ===================================================================*/
+function startOfDayPlus(days) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.getTime();
+}
+function isDue(card, t = now()) { return card.srs.state !== 'new' && card.srs.due <= t; }
+
+function stats(cards) {
+  const t = now();
+  let fresh = 0, due = 0;
+  cards.forEach((c) => { if (c.srs.state === 'new') fresh++; else if (c.srs.due <= t) due++; });
+  return { total: cards.length, new: fresh, due };
+}
+
+function applyGrade(srs, grade) {
+  const t = now();
+  srs.last = t;
+  srs.reps++;
+  if (srs.state === 'new' || srs.state === 'learn') {
+    if (grade === 'again') { srs.state = 'learn'; srs.due = t + 1 * MIN; }
+    else if (grade === 'hard') { srs.state = 'learn'; srs.due = t + 6 * MIN; }
+    else if (grade === 'good') { srs.state = 'review'; srs.interval = Math.max(1, srs.interval); srs.due = startOfDayPlus(srs.interval); }
+    else { srs.state = 'review'; srs.interval = Math.max(4, srs.interval); srs.ease += 0.15; srs.due = startOfDayPlus(srs.interval); }
+    return srs;
+  }
+  const iv = srs.interval || 1;
+  if (grade === 'again') {
+    srs.lapses++;
+    srs.ease = Math.max(1.3, srs.ease - 0.2);
+    srs.interval = Math.max(1, Math.round(iv * 0.5));
+    srs.state = 'learn';
+    srs.due = t + 10 * MIN;
+    return srs;
+  }
+  if (grade === 'hard') { srs.interval = Math.max(iv + 1, Math.round(iv * 1.2)); srs.ease = Math.max(1.3, srs.ease - 0.15); }
+  else if (grade === 'good') { srs.interval = Math.max(iv + 1, Math.round(iv * srs.ease)); }
+  else { srs.interval = Math.max(iv + 2, Math.round(iv * srs.ease * 1.3)); srs.ease += 0.15; }
+  srs.due = startOfDayPlus(srs.interval);
+  return srs;
+}
+
+function fmtDays(d) {
+  if (d < 30) return `${d}d`;
+  if (d < 365) return `${+(d / 30).toFixed(d < 60 ? 1 : 0)}mo`;
+  return `${+(d / 365).toFixed(1)}y`;
+}
+function fmtMs(ms) {
+  const m = ms / MIN;
+  if (m < 1) return '<1m';
+  if (m < 60) return `${Math.round(m)}m`;
+  const hr = m / 60;
+  if (hr < 24) return `${Math.round(hr)}h`;
+  return fmtDays(Math.round(hr / 24));
+}
+function gradeLabel(card, grade) {
+  const s = applyGrade(clone(card.srs), grade);
+  return s.state === 'learn' ? fmtMs(s.due - now()) : fmtDays(s.interval);
+}
+/** Human label for when a card is next due ("in 10m", "tomorrow", "in 5d"). */
+function fmtDue(card) {
+  const s = card.srs;
+  if (s.state === 'learn') return 'in ' + fmtMs(Math.max(0, s.due - now()));
+  const days = Math.round((s.due - startOfDayPlus(0)) / (24 * 60 * MIN));
+  return days <= 1 ? 'tomorrow' : 'in ' + fmtDays(days);
+}
+function cardStatus(card) {
+  const s = card.srs;
+  if (s.state === 'new') return { label: 'New', cls: 'new' };
+  if (s.due <= now()) return { label: s.state === 'learn' ? 'Learning' : 'Due', cls: 'due' };
+  return { label: fmtDue(card), cls: '' };
+}
+
+/* =====================================================================
+ * Drawing (strokes stored as normalized points; canvas aspect 4:3)
+ * ===================================================================*/
+const ASPECT = 3 / 4; // height / width
+const PEN_SIZES = [0.006, 0.012, 0.022];
+const ERASER_SIZE = 0.06;
+const COLORS = {
+  ink: null, // theme text color
+  red: '#ff3b30',
+  blue: '#0a7aff',
+  green: '#34c759',
+  orange: '#ff9500',
+};
+function resolveColor(c) {
+  if (!c || c === 'ink' || !(c in COLORS)) return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#000';
+  return COLORS[c];
+}
+const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+
+function strokeStyle(ctx, s, w) {
+  const eraser = s.tool === 'eraser';
+  ctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = ctx.fillStyle = eraser ? '#000' : resolveColor(s.color);
+  ctx.lineWidth = Math.max(1, s.size * w);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+}
+function drawDot(ctx, p, w) {
+  ctx.beginPath();
+  ctx.arc(p[0] * w, p[1] * w, ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+function renderStroke(ctx, s, w) {
+  const p = s.points;
+  if (!p.length) return;
+  ctx.save();
+  strokeStyle(ctx, s, w);
+  if (p.length === 1) drawDot(ctx, p[0], w);
+  else {
+    ctx.beginPath();
+    ctx.moveTo(p[0][0] * w, p[0][1] * w);
+    const m = mid(p[0], p[1]);
+    ctx.lineTo(m[0] * w, m[1] * w);
+    for (let i = 1; i < p.length - 1; i++) {
+      const m2 = mid(p[i], p[i + 1]);
+      ctx.quadraticCurveTo(p[i][0] * w, p[i][1] * w, m2[0] * w, m2[1] * w);
+    }
+    const last = p[p.length - 1];
+    ctx.lineTo(last[0] * w, last[1] * w);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+/** Draws only the newest segment of a stroke in progress (matches renderStroke). */
+function renderLastSegment(ctx, s, w) {
+  const p = s.points, n = p.length;
+  ctx.save();
+  strokeStyle(ctx, s, w);
+  if (n === 1) drawDot(ctx, p[0], w);
+  else {
+    ctx.beginPath();
+    if (n === 2) {
+      ctx.moveTo(p[0][0] * w, p[0][1] * w);
+      const m = mid(p[0], p[1]);
+      ctx.lineTo(m[0] * w, m[1] * w);
+    } else {
+      const a = mid(p[n - 3], p[n - 2]), b = mid(p[n - 2], p[n - 1]);
+      ctx.moveTo(a[0] * w, a[1] * w);
+      ctx.quadraticCurveTo(p[n - 2][0] * w, p[n - 2][1] * w, b[0] * w, b[1] * w);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function sizeCanvas(canvas, w) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(w * ASPECT * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+/** Read-only view of a drawing that re-renders at whatever size it is laid out. */
+function drawingView(strokes, cls) {
+  const canvas = h('canvas');
+  const wrap = h('div', { class: cls }, canvas);
+  let lastW = 0;
+  const paint = () => {
+    const w = wrap.clientWidth;
+    if (!w || w === lastW) return;
+    lastW = w;
+    const ctx = sizeCanvas(canvas, w);
+    strokes.forEach((s) => renderStroke(ctx, s, w));
+  };
+  if ('ResizeObserver' in window) new ResizeObserver(paint).observe(wrap);
+  requestAnimationFrame(paint);
+  return wrap;
+}
+
+/** Interactive drawing pad. `strokes` is mutated in place. `tool` is shared state. */
+function createDrawPad(strokes, tool) {
+  const canvas = h('canvas', { 'aria-label': 'Drawing area' });
+  const hint = h('div', { class: 'drawpad-hint' }, 'Write or draw here ✍️');
+  const area = h('div', { class: 'drawpad-canvas-wrap' }, canvas, hint);
+  const redoStack = [];
+  let ctx = null, w = 0, cur = null, pointerId = null, penSeen = false;
+
+  function redraw() {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, w * ASPECT);
+    strokes.forEach((s) => renderStroke(ctx, s, w));
+    hint.style.display = strokes.length ? 'none' : '';
+    refreshTools();
+  }
+  function resize() {
+    const nw = area.clientWidth;
+    if (!nw || nw === w) return;
+    w = nw;
+    ctx = sizeCanvas(canvas, w);
+    redraw();
+  }
+  const point = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [+((e.clientX - r.left) / r.width).toFixed(4), +((e.clientY - r.top) / r.width).toFixed(4)];
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (penSeen && e.pointerType === 'touch') return; // palm rejection once a pencil is used
+    if (cur || !ctx) return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    pointerId = e.pointerId;
+    cur = {
+      tool: tool.mode,
+      color: tool.color,
+      size: tool.mode === 'eraser' ? ERASER_SIZE : tool.size,
+      points: [point(e)],
+    };
+    strokes.push(cur);
+    redoStack.length = 0;
+    hint.style.display = 'none';
+    renderLastSegment(ctx, cur, w);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!cur || e.pointerId !== pointerId) return;
+    e.preventDefault();
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    (events.length ? events : [e]).forEach((ev) => {
+      const p = point(ev);
+      const last = cur.points[cur.points.length - 1];
+      if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 0.0015) return;
+      cur.points.push(p);
+      renderLastSegment(ctx, cur, w);
+    });
+  });
+  const end = (e) => {
+    if (!cur || e.pointerId !== pointerId) return;
+    cur = null;
+    pointerId = null;
+    redraw();
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  // Stop iOS from scrolling / showing the magnifier while drawing.
+  canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+  canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+  // --- Toolbar ---
+  const toolBtn = (name, label, onClick) => h('button', { class: 'tool', 'aria-label': label, title: label, svg: ICONS[name], onclick: onClick });
+  const penBtn = toolBtn('pen', 'Pen', () => { tool.mode = 'pen'; refreshTools(); });
+  const eraserBtn = toolBtn('eraser', 'Eraser', () => { tool.mode = 'eraser'; refreshTools(); });
+  const undoBtn = toolBtn('undo', 'Undo', () => { if (strokes.length) { redoStack.push(strokes.pop()); redraw(); } });
+  const redoBtn = toolBtn('redo', 'Redo', () => { if (redoStack.length) { strokes.push(redoStack.pop()); redraw(); } });
+  const clearBtn = toolBtn('trash', 'Clear drawing', async () => {
+    if (!strokes.length) return;
+    if (await confirmDialog('Clear drawing?', 'This removes everything drawn on this side.', 'Clear', true)) {
+      strokes.length = 0;
+      redoStack.length = 0;
+      redraw();
+    }
+  });
+  const swatches = Object.keys(COLORS).map((c) =>
+    h('button', {
+      class: 'swatch',
+      'aria-label': c === 'ink' ? 'Ink' : c,
+      'data-color': c,
+      style: { background: c === 'ink' ? 'var(--ink)' : COLORS[c] },
+      onclick: () => { tool.color = c; tool.mode = 'pen'; refreshTools(); },
+    })
+  );
+  const sizeDot = h('span', { class: 'size-dot' });
+  const sizeBtn = h('button', {
+    class: 'tool',
+    'aria-label': 'Pen size',
+    title: 'Pen size',
+    onclick: () => {
+      tool.size = PEN_SIZES[(PEN_SIZES.indexOf(tool.size) + 1) % PEN_SIZES.length];
+      tool.mode = 'pen';
+      refreshTools();
+    },
+  }, sizeDot);
+
+  function refreshTools() {
+    penBtn.classList.toggle('active', tool.mode === 'pen');
+    eraserBtn.classList.toggle('active', tool.mode === 'eraser');
+    swatches.forEach((s) => s.classList.toggle('active', tool.mode === 'pen' && s.dataset.color === tool.color));
+    const d = [6, 10, 15][PEN_SIZES.indexOf(tool.size)] || 10;
+    Object.assign(sizeDot.style, { width: d + 'px', height: d + 'px' });
+    sizeBtn.style.color = resolveColor(tool.color);
+    undoBtn.disabled = !strokes.length;
+    redoBtn.disabled = !redoStack.length;
+    clearBtn.disabled = !strokes.length;
+  }
+
+  const tools = h('div', { class: 'drawpad-tools' },
+    penBtn, eraserBtn, h('span', { class: 'tool-sep' }),
+    swatches, h('span', { class: 'tool-sep' }),
+    sizeBtn, h('span', { class: 'tool-sep' }),
+    undoBtn, redoBtn, clearBtn);
+
+  const el = h('div', { class: 'drawpad' }, area, tools);
+  if ('ResizeObserver' in window) new ResizeObserver(resize).observe(area);
+  requestAnimationFrame(resize);
+  refreshTools();
+  return { el, redraw: () => { w = 0; resize(); } };
+}
+
+/* =====================================================================
+ * Overlays: alert / confirm / prompt / action sheet / toast
+ * ===================================================================*/
+const overlayRoot = () => document.getElementById('overlay-root');
+
+function openOverlay(content, { sheet = false, onDismiss } = {}) {
+  const backdrop = h('div', { class: 'backdrop' + (sheet ? ' sheet-backdrop' : '') }, content);
+  const close = () => new Promise((res) => {
+    backdrop.classList.add('closing');
+    setTimeout(() => { backdrop.remove(); res(); }, 170);
+  });
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop && onDismiss) onDismiss(); });
+  overlayRoot().append(backdrop);
+  return close;
+}
+
+function alertDialog({ title, message, input, actions }) {
+  return new Promise((resolve) => {
+    let field = null;
+    if (input) {
+      field = h('input', {
+        type: 'text',
+        value: input.value || '',
+        placeholder: input.placeholder || '',
+        autocapitalize: 'sentences',
+        enterkeyhint: 'done',
+        maxlength: '120',
+      });
+    }
+    let close;
+    const finish = (value) => { close().then(() => resolve(value)); };
+    const buttons = actions.map((a) =>
+      h('button', {
+        class: [a.bold && 'bold', a.danger && 'danger'].filter(Boolean).join(' '),
+        onclick: () => finish({ action: a.value, value: field ? field.value.trim() : undefined }),
+      }, a.label)
+    );
+    const box = h('div', { class: 'alert', role: 'alertdialog' },
+      h('div', { class: 'alert-body' },
+        title && h('div', { class: 'alert-title' }, title),
+        message && h('div', { class: 'alert-msg' }, message),
+        field),
+      h('div', { class: 'alert-actions' }, buttons));
+    close = openOverlay(box);
+    if (field) {
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); buttons[buttons.length - 1].click(); }
+      });
+      setTimeout(() => { field.focus(); field.select(); }, 60);
+    }
+  });
+}
+
+async function confirmDialog(title, message, okLabel = 'OK', danger = false) {
+  const r = await alertDialog({
+    title, message,
+    actions: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, bold: !danger, danger }],
+  });
+  return r.action;
+}
+
+async function promptDialog(title, message, value = '', okLabel = 'Save', placeholder = 'Name') {
+  const r = await alertDialog({
+    title, message, input: { value, placeholder },
+    actions: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, bold: true }],
+  });
+  return r.action && r.value ? r.value : null;
+}
+
+function actionSheet(title, options) {
+  return new Promise((resolve) => {
+    let close;
+    const finish = (v) => close().then(() => resolve(v));
+    const sheet = h('div', { class: 'sheet' },
+      h('div', { class: 'sheet-group' },
+        title && h('div', { class: 'sheet-title' }, title),
+        options.map((o) => h('button', { class: o.danger ? 'danger' : '', onclick: () => finish(o.value) }, o.label))),
+      h('div', { class: 'sheet-group' }, h('button', { class: 'cancel', onclick: () => finish(null) }, 'Cancel')));
+    close = openOverlay(sheet, { sheet: true, onDismiss: () => finish(null) });
+  });
+}
+
+let toastTimer;
+function toast(msg) {
+  document.querySelectorAll('.toast').forEach((t) => t.remove());
+  const t = h('div', { class: 'toast', role: 'status' }, msg);
+  document.body.append(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 1800);
+}
+
+/* =====================================================================
+ * Navigation
+ * ===================================================================*/
+const stack = [{ view: 'home' }];
+const cur = () => stack[stack.length - 1];
+let keyHandler = null;
+
+function navigate(route) {
+  cur().scroll = window.scrollY;
+  stack.push(route);
+  render('push');
+}
+function back() {
+  if (stack.length > 1) stack.pop();
+  render('pop');
+}
+function render(anim = 'none') {
+  keyHandler = null;
+  const r = cur();
+  const el = Views[r.view](r);
+  if (!el) return; // view redirected
+  el.classList.add(anim === 'push' ? 'push' : anim === 'pop' ? 'back-anim' : 'no-anim');
+  const app = document.getElementById('app');
+  app.replaceChildren(el);
+  window.scrollTo(0, anim === 'pop' ? r.scroll || 0 : anim === 'none' ? window.scrollY : 0);
+  updateNavbar();
+}
+function updateNavbar() {
+  const nb = document.querySelector('#app .navbar');
+  if (nb) nb.classList.toggle('scrolled', window.scrollY > 34);
+}
+window.addEventListener('scroll', updateNavbar, { passive: true });
+document.addEventListener('keydown', (e) => {
+  if (keyHandler && !e.target.closest('input, textarea, select') && !overlayRoot().children.length) keyHandler(e);
+});
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => render('none'));
+
+/* =====================================================================
+ * Shared UI pieces
+ * ===================================================================*/
+function navbar({ title, backLabel, left = [], right = [], alwaysTitle = false }) {
+  const leftItems = [];
+  if (backLabel != null) {
+    leftItems.push(h('button', { class: 'nav-btn', onclick: back, 'aria-label': 'Back' },
+      icon('back'), h('span', { class: 'back-label' }, backLabel)));
+  }
+  return h('header', { class: 'navbar' + (alwaysTitle ? ' always-title' : '') },
+    h('div', { class: 'navbar-row' },
+      h('div', { class: 'nav-left' }, leftItems, left),
+      h('div', { class: 'navbar-title' }, title || ''),
+      h('div', { class: 'nav-right' }, right)));
+}
+const navBtn = (label, onClick, opts = {}) =>
+  h('button', { class: 'nav-btn' + (opts.bold ? ' bold' : ''), onclick: onClick, 'aria-label': opts.aria || label, disabled: opts.disabled }, opts.icon ? icon(opts.icon) : null, opts.icon ? null : label);
+
+const chevron = () => h('span', { class: 'chev', svg: ICONS.chev });
+
+function toolbar(left, center, right) {
+  return h('footer', { class: 'toolbar' }, h('div', null, left), h('div', { class: 'row-sub' }, center), h('div', null, right));
+}
+
+function emptyState(iconName, title, text) {
+  return h('div', { class: 'empty' }, h('div', { class: 'empty-icon', svg: ICONS[iconName] }), h('h3', null, title), h('div', null, text));
+}
+
+async function newFolderFlow(parentId) {
+  const name = await promptDialog('New Folder', parentId ? `Inside “${Model.folder(parentId).name}”` : 'Enter a name for this folder.', '', 'Create');
+  if (!name) return;
+  Model.addFolder(name, parentId);
+  render('none');
+}
+async function renameFolderFlow(f) {
+  const name = await promptDialog('Rename Folder', null, f.name, 'Save');
+  if (!name) return;
+  Model.renameFolder(f.id, name);
+  render('none');
+}
+async function deleteFolderFlow(f) {
+  const cards = Model.cardsDeep(f.id).length;
+  const subs = Model.descendantIds(f.id).length - 1;
+  const parts = [plural(cards, 'card')];
+  if (subs) parts.push(plural(subs, 'subfolder'));
+  const ok = await confirmDialog(`Delete “${f.name}”?`, `This will permanently delete ${parts.join(' and ')}.`, 'Delete', true);
+  if (!ok) return false;
+  Model.deleteFolder(f.id);
+  toast('Folder deleted');
+  return true;
+}
+
+function folderRow(f, editing) {
+  const all = Model.cardsDeep(f.id);
+  const st = stats(all);
+  const subCount = Model.childFolders(f.id).length;
+  const sub = [plural(all.length, 'card')];
+  if (subCount) sub.push(plural(subCount, 'folder'));
+  return h('button', {
+    class: 'row',
+    onclick: () => (editing ? renameFolderFlow(f) : navigate({ view: 'folder', id: f.id })),
+  },
+  editing && h('span', {
+    class: 'del-btn',
+    role: 'button',
+    'aria-label': `Delete ${f.name}`,
+    onclick: async (e) => { e.stopPropagation(); if (await deleteFolderFlow(f)) render('none'); },
+  }),
+  h('span', { class: 'row-icon', svg: ICONS.folder }),
+  h('span', { class: 'row-main' },
+    h('div', { class: 'row-title' }, f.name),
+    h('div', { class: 'row-sub' }, editing ? 'Tap to rename' : sub.join(' · '))),
+  !editing && h('span', { class: 'row-meta' },
+    st.due ? h('span', { class: 'badge', title: 'Due' }, st.due) : null,
+    st.new ? h('span', { class: 'badge new', title: 'New' }, st.new) : null,
+    chevron()));
+}
+
+function cardRow(c, editing) {
+  const frontTitle = firstLine(c.front.text) || (c.front.strokes.length ? 'Handwritten card' : 'Empty card');
+  const backSub = firstLine(c.back.text) || (c.back.strokes.length ? '✎ Handwritten answer' : '—');
+  const status = cardStatus(c);
+  return h('button', {
+    class: 'row plain',
+    onclick: () => navigate({ view: 'editor', cardId: c.id, folderId: c.folderId }),
+  },
+  editing && h('span', {
+    class: 'del-btn',
+    role: 'button',
+    'aria-label': 'Delete card',
+    onclick: async (e) => {
+      e.stopPropagation();
+      if (await confirmDialog('Delete this card?', `“${frontTitle}”`, 'Delete', true)) {
+        Model.deleteCard(c.id);
+        render('none');
+      }
+    },
+  }),
+  c.front.strokes.length ? drawingView(c.front.strokes, 'thumb') : null,
+  h('span', { class: 'row-main' },
+    h('div', { class: 'row-title' }, frontTitle),
+    h('div', { class: 'row-sub' }, backSub)),
+  !editing && h('span', { class: 'row-meta' },
+    h('span', { style: { fontSize: '13px', color: status.cls === 'new' ? 'var(--good)' : status.cls === 'due' ? 'var(--accent)' : '' } }, status.label),
+    chevron()));
+}
+
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function isStandalone() {
+  return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+}
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+
+/* =====================================================================
+ * Views
+ * ===================================================================*/
+const Views = {};
+
+/* ----- Home: list of top-level folders ----- */
+Views.home = (r) => {
+  const folders = Model.childFolders(null);
+  if (!folders.length) r.editing = false;
+  const nav = navbar({
+    title: 'Folders',
+    right: folders.length ? [navBtn(r.editing ? 'Done' : 'Edit', () => { r.editing = !r.editing; render('none'); }, { bold: r.editing })] : [],
+  });
+  const content = h('main', { class: 'content' });
+
+  if (folders.length) {
+    const st = stats(Model.cards);
+    content.append(
+      h('div', { class: 'section-header' }, `${plural(st.total, 'card')}${st.due ? ` · ${st.due} due` : ''}${st.new ? ` · ${st.new} new` : ''}`),
+      h('div', { class: 'list' }, folders.map((f) => folderRow(f, r.editing)))
+    );
+  } else {
+    content.append(emptyState('folder', 'No folders yet', 'Create a folder to start organizing your flash cards.'),
+      h('button', { class: 'btn', onclick: () => newFolderFlow(null) }, 'Create Folder'));
+  }
+
+  if (isIOS() && !isStandalone() && !lsGet('flashcard-hide-install')) {
+    const tip = h('div', { class: 'install-tip' },
+      h('div', null, h('b', null, 'Install FlashCard: '), 'tap the Share button, then “Add to Home Screen”. It opens full-screen and keeps your cards safely stored.'),
+      h('button', { onclick: () => { lsSet('flashcard-hide-install', '1'); tip.remove(); } }, 'Hide'));
+    content.append(tip);
+  }
+
+  return h('div', { class: 'screen' }, nav, h('h1', { class: 'large-title' }, 'FlashCard'), content,
+    toolbar(
+      navBtn('Settings', () => navigate({ view: 'settings' }), { icon: 'settings', aria: 'Settings' }),
+      folders.length ? plural(folders.length, 'folder') : '',
+      navBtn('New Folder', () => newFolderFlow(null), { icon: 'folderPlus', aria: 'New folder' })));
+};
+
+/* ----- Folder: subfolders, cards, study ----- */
+Views.folder = (r) => {
+  const f = Model.folder(r.id);
+  if (!f) { stack.pop(); render('pop'); return null; }
+  const parent = Model.folder(f.parentId);
+  const subs = Model.childFolders(f.id);
+  const cards = Model.cardsIn(f.id);
+  const deep = Model.cardsDeep(f.id);
+  const st = stats(deep);
+  if (!subs.length && !cards.length) r.editing = false;
+
+  const more = navBtn('More', async () => {
+    const choice = await actionSheet(f.name, [
+      { label: 'New Card', value: 'card' },
+      { label: 'New Subfolder', value: 'sub' },
+      { label: 'Rename Folder', value: 'rename' },
+      { label: 'Delete Folder', value: 'delete', danger: true },
+    ]);
+    if (choice === 'card') navigate({ view: 'editor', folderId: f.id });
+    else if (choice === 'sub') newFolderFlow(f.id);
+    else if (choice === 'rename') renameFolderFlow(f);
+    else if (choice === 'delete' && (await deleteFolderFlow(f))) back();
+  }, { icon: 'more', aria: 'Folder options' });
+
+  const nav = navbar({
+    title: f.name,
+    backLabel: parent ? parent.name : 'Folders',
+    right: [
+      (subs.length || cards.length) ? navBtn(r.editing ? 'Done' : 'Edit', () => { r.editing = !r.editing; render('none'); }, { bold: r.editing }) : null,
+      more,
+    ],
+  });
+
+  const content = h('main', { class: 'content' });
+
+  if (deep.length) {
+    content.append(h('div', { class: 'study-card' },
+      h('div', { class: 'stats' },
+        h('div', { class: 'stat due' }, h('div', { class: 'stat-num' }, st.due), h('div', { class: 'stat-label' }, 'Due')),
+        h('div', { class: 'stat new' }, h('div', { class: 'stat-num' }, st.new), h('div', { class: 'stat-label' }, 'New')),
+        h('div', { class: 'stat' }, h('div', { class: 'stat-num' }, st.total), h('div', { class: 'stat-label' }, 'Total'))),
+      h('div', { class: 'btn-row' },
+        h('button', {
+          class: 'btn',
+          disabled: !(st.due + st.new),
+          onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'due' }),
+        }, st.due + st.new ? 'Study Now' : 'All Caught Up ✓'),
+        h('button', {
+          class: 'btn secondary',
+          onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'practice' }),
+        }, 'Flip All'))));
+  }
+
+  if (subs.length) {
+    content.append(h('div', { class: 'section-header' }, 'Folders'), h('div', { class: 'list' }, subs.map((s) => folderRow(s, r.editing))));
+  }
+  if (cards.length) {
+    content.append(h('div', { class: 'section-header' }, plural(cards.length, 'Card')), h('div', { class: 'list plain' }, cards.map((c) => cardRow(c, r.editing))));
+  }
+  if (!subs.length && !cards.length) {
+    content.append(emptyState('cards', 'No cards yet', 'Tap the ✎ button to create your first card.'),
+      h('button', { class: 'btn', onclick: () => navigate({ view: 'editor', folderId: f.id }) }, 'New Card'));
+  }
+
+  return h('div', { class: 'screen' }, nav, h('h1', { class: 'large-title' }, f.name), content,
+    toolbar(
+      navBtn('New Subfolder', () => newFolderFlow(f.id), { icon: 'folderPlus', aria: 'New subfolder' }),
+      deep.length ? plural(deep.length, 'card') : '',
+      navBtn('New Card', () => navigate({ view: 'editor', folderId: f.id }), { icon: 'compose', aria: 'New card' })));
+};
+
+/* ----- Card editor ----- */
+Views.editor = (r) => {
+  const existing = r.cardId ? Model.card(r.cardId) : null;
+  if (r.cardId && !existing) { stack.pop(); render('pop'); return null; }
+  if (!r.draft) {
+    r.draft = existing
+      ? { front: clone(existing.front), back: clone(existing.back), folderId: existing.folderId }
+      : { front: emptySide(), back: emptySide(), folderId: r.folderId };
+    r.original = JSON.stringify(r.draft);
+    r.side = r.side || 'front';
+    r.tool = r.tool || { mode: 'pen', color: 'ink', size: PEN_SIZES[1] };
+  }
+  const d = r.draft;
+  const isDirty = () => JSON.stringify(d) !== r.original;
+
+  async function cancel() {
+    if (isDirty() && !(await confirmDialog('Discard changes?', 'Your edits to this card will be lost.', 'Discard', true))) return;
+    back();
+  }
+  function validate() {
+    if (sideIsEmpty(d.front)) {
+      alertDialog({ title: 'Front is empty', message: 'Type or draw something on the front of the card.', actions: [{ label: 'OK', value: true, bold: true }] });
+      showSide('front');
+      return false;
+    }
+    if (!Model.folder(d.folderId)) {
+      alertDialog({ title: 'Choose a folder', message: 'Pick a folder for this card.', actions: [{ label: 'OK', value: true, bold: true }] });
+      return false;
+    }
+    return true;
+  }
+  function save(addAnother) {
+    if (!validate()) return;
+    if (existing) {
+      Model.updateCard(existing.id, { front: clone(d.front), back: clone(d.back), folderId: d.folderId });
+      toast('Card saved');
+      back();
+      return;
+    }
+    Model.addCard(d.folderId, clone(d.front), clone(d.back));
+    if (addAnother) {
+      r.draft = null;
+      r.folderId = d.folderId;
+      r.side = 'front';
+      render('none');
+      window.scrollTo(0, 0);
+      toast('Card added');
+      setTimeout(() => document.querySelector('#app .text-input')?.focus(), 50);
+    } else {
+      toast('Card added');
+      back();
+    }
+  }
+
+  const nav = navbar({
+    title: existing ? 'Edit Card' : 'New Card',
+    alwaysTitle: true,
+    left: [navBtn('Cancel', cancel)],
+    right: [navBtn(existing ? 'Save' : 'Add', () => save(false), { bold: true })],
+  });
+
+  const panels = {};
+  const pads = {};
+  const segButtons = {};
+  function showSide(side) {
+    r.side = side;
+    for (const s of ['front', 'back']) {
+      panels[s].style.display = s === side ? '' : 'none';
+      segButtons[s].classList.toggle('active', s === side);
+    }
+    pads[side].redraw();
+  }
+
+  for (const side of ['front', 'back']) {
+    const ta = h('textarea', {
+      class: 'text-input',
+      placeholder: side === 'front' ? 'Question, word or prompt…' : 'Answer…',
+      rows: '4',
+      autocapitalize: 'sentences',
+      'aria-label': side === 'front' ? 'Front text' : 'Back text',
+    });
+    ta.value = d[side].text;
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.max(120, ta.scrollHeight) + 'px'; };
+    ta.addEventListener('input', () => { d[side].text = ta.value; grow(); });
+    requestAnimationFrame(grow);
+    pads[side] = createDrawPad(d[side].strokes, r.tool);
+    panels[side] = h('div', null,
+      h('div', { class: 'side-label' }, h('span', null, side === 'front' ? 'Front — text' : 'Back — text')),
+      ta,
+      h('div', { class: 'side-label', style: { marginTop: '18px' } }, h('span', null, 'Handwriting'), h('span', null, 'finger or Apple Pencil')),
+      pads[side].el);
+    segButtons[side] = h('button', { onclick: () => showSide(side) }, side === 'front' ? 'Front' : 'Back');
+  }
+
+  const folderSelect = h('select', {
+    class: 'field',
+    'aria-label': 'Folder',
+    onchange: (e) => { d.folderId = e.target.value; },
+  }, Model.tree().map(({ folder, depth }) =>
+    h('option', { value: folder.id, selected: folder.id === d.folderId }, ' '.repeat(depth) + folder.name)));
+
+  const content = h('main', { class: 'content', style: { paddingTop: '4px' } },
+    h('div', { class: 'segmented', role: 'tablist' }, segButtons.front, segButtons.back),
+    panels.front, panels.back,
+    h('div', { class: 'section-header' }, 'Folder'),
+    h('div', { class: 'list plain' },
+      h('label', { class: 'row plain static' }, h('span', { class: 'row-main' }, 'Folder'), folderSelect)),
+    !existing && h('div', { style: { marginTop: '22px' } },
+      h('button', { class: 'btn secondary', onclick: () => save(true) }, 'Add & Create Another')),
+    existing && h('div', { style: { marginTop: '22px' } },
+      h('div', { class: 'list plain' },
+        h('button', {
+          class: 'row action danger center',
+          onclick: async () => {
+            if (await confirmDialog('Delete this card?', 'This cannot be undone.', 'Delete', true)) {
+              Model.deleteCard(existing.id);
+              toast('Card deleted');
+              back();
+            }
+          },
+        }, 'Delete Card'))));
+
+  const screen = h('div', { class: 'screen' }, nav, content);
+  showSide(r.side);
+  return screen;
+};
+
+/* ----- Study session ----- */
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function buildSession(folderId, mode) {
+  const cards = Model.cardsDeep(folderId);
+  let queue;
+  if (mode === 'practice') {
+    queue = shuffle(cards.map((c) => c.id));
+  } else {
+    const t = now();
+    const learn = cards.filter((c) => c.srs.state === 'learn' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
+    const review = cards.filter((c) => c.srs.state === 'review' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
+    const fresh = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt);
+    queue = [...learn, ...review, ...fresh].map((c) => c.id);
+  }
+  return { queue, done: 0, flipped: false, mode };
+}
+
+function faceView(side, which) {
+  const inner = h('div', { class: 'face-inner', style: { margin: 'auto 0', display: 'flex', flexDirection: 'column', gap: '16px' } });
+  const text = side.text.trim();
+  if (text) inner.append(h('div', { class: 'face-text' + (text.length > 140 || text.split('\n').length > 4 ? ' long' : '') }, side.text));
+  if (side.strokes.length) inner.append(drawingView(side.strokes, 'face-drawing'));
+  if (!text && !side.strokes.length) inner.append(h('div', { class: 'face-empty' }, 'Nothing on this side'));
+  return h('div', { class: 'face ' + which },
+    h('div', { class: 'face-tag' + (which === 'back' ? ' back-tag' : '') }, which === 'front' ? 'Front' : 'Back'),
+    h('div', { class: 'face-body', style: { justifyContent: 'flex-start' } }, inner),
+    which === 'front' ? h('div', { class: 'tap-hint' }, 'Tap to flip') : null);
+}
+
+Views.study = (r) => {
+  const f = Model.folder(r.folderId);
+  if (!f) { stack.pop(); render('pop'); return null; }
+  const s = r.session || (r.session = buildSession(f.id, r.mode));
+  const practice = s.mode === 'practice';
+  const editBtn = navBtn('Edit', () => { if (s.queue[0]) navigate({ view: 'editor', cardId: s.queue[0] }); });
+  const nav = navbar({ title: practice ? 'Flip All' : 'Study', backLabel: f.name, alwaysTitle: true, right: [editBtn] });
+  const content = h('main', { class: 'content' });
+  const screen = h('div', { class: 'screen study' }, nav, content);
+
+  function currentCard() {
+    while (s.queue.length) {
+      const c = Model.card(s.queue[0]);
+      if (c) return c;
+      s.queue.shift();
+    }
+    return null;
+  }
+
+  function finished() {
+    editBtn.style.visibility = 'hidden';
+    const deep = Model.cardsDeep(f.id);
+    const upcoming = deep.filter((c) => c.srs.state !== 'new' && c.srs.due > now()).sort((a, b) => a.srs.due - b.srs.due)[0];
+    content.append(h('div', { class: 'done' },
+      h('div', { class: 'big' }, '🎉'),
+      h('h2', null, practice ? 'Round complete!' : 'All done!'),
+      h('p', null, practice
+        ? `You went through ${plural(s.done, 'card')}.`
+        : `You reviewed ${plural(s.done, 'card')}.` + (upcoming ? ` Next card is due ${fmtDue(upcoming)}.` : '')),
+      h('button', { class: 'btn', onclick: () => { r.session = buildSession(f.id, 'practice'); render('none'); } }, practice ? 'Go Again' : 'Flip Through All Cards'),
+      h('button', { class: 'btn secondary', onclick: back }, 'Back to Folder')));
+  }
+
+  function draw(enter) {
+    content.replaceChildren();
+    const card = currentCard();
+    if (!card) { finished(); return; }
+    editBtn.style.visibility = '';
+
+    const total = s.done + s.queue.length;
+    content.append(h('div', { class: 'progress' }, h('div', { style: { width: `${total ? (s.done / total) * 100 : 0}%` } })));
+
+    if (!practice) {
+      let n = 0, l = 0, d = 0;
+      s.queue.forEach((id) => {
+        const c = Model.card(id);
+        if (!c) return;
+        if (c.srs.state === 'new') n++; else if (c.srs.state === 'learn') l++; else d++;
+      });
+      const curState = card.srs.state;
+      content.append(h('div', { class: 'counts', 'aria-label': 'New, learning, due' },
+        h('span', { class: 'c-new' + (curState === 'new' ? ' current' : '') }, n),
+        h('span', { class: 'c-learn' + (curState === 'learn' ? ' current' : '') }, l),
+        h('span', { class: 'c-due' + (curState === 'review' ? ' current' : '') }, d)));
+    } else {
+      content.append(h('div', { class: 'counts' }, h('span', null, `${s.done + 1} / ${total}`)));
+    }
+
+    const flipCard = h('div', {
+      class: 'flip-card' + (s.flipped ? ' flipped' : '') + (enter ? ' enter' : ''),
+      role: 'button',
+      'aria-label': 'Flip card',
+      onclick: () => flip(),
+    }, faceView(card.front, 'front'), faceView(card.back, 'back'));
+    const answerBar = h('div', { class: 'answer-bar' });
+    content.append(h('div', { class: 'flip-scene' }, flipCard), answerBar);
+
+    function renderAnswerBar() {
+      answerBar.replaceChildren();
+      if (!s.revealed) {
+        answerBar.append(h('button', { class: 'btn', onclick: () => flip() }, 'Show Answer'));
+      } else if (practice) {
+        answerBar.append(h('div', { class: 'grade-row', style: { gridTemplateColumns: '1fr 1fr' } },
+          h('button', { class: 'grade again', onclick: () => grade('again') }, 'Again', h('small', null, 'see it later')),
+          h('button', { class: 'grade good', onclick: () => grade('good') }, 'Got It', h('small', null, 'next card'))));
+      } else {
+        answerBar.append(h('div', { class: 'grade-row' },
+          ['again', 'hard', 'good', 'easy'].map((g) =>
+            h('button', { class: 'grade ' + g, onclick: () => grade(g) }, g[0].toUpperCase() + g.slice(1), h('small', null, gradeLabel(card, g))))));
+      }
+    }
+
+    function flip() {
+      s.flipped = !s.flipped;
+      flipCard.classList.toggle('flipped', s.flipped);
+      if (s.flipped && !s.revealed) { s.revealed = true; renderAnswerBar(); }
+    }
+
+    function grade(g) {
+      if (!practice) {
+        applyGrade(card.srs, g);
+        Store.save();
+      }
+      s.queue.shift();
+      const requeue = practice ? g === 'again' : card.srs.state === 'learn';
+      if (requeue) s.queue.push(card.id); else s.done++;
+      s.flipped = false;
+      s.revealed = false;
+      flipCard.classList.add('swipe-out-left');
+      setTimeout(() => draw(true), 220);
+    }
+
+    renderAnswerBar();
+    keyHandler = (e) => {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); return; }
+      if (!s.revealed) return;
+      const map = practice ? { 1: 'again', 2: 'good' } : { 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' };
+      if (map[e.key]) grade(map[e.key]);
+    };
+  }
+
+  draw(false);
+  return screen;
+};
+
+/* ----- Settings / backup ----- */
+async function exportBackup() {
+  const payload = { app: 'FlashCard', exportedAt: new Date().toISOString(), ...Store.data };
+  const name = `flashcard-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  try {
+    const file = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'FlashCard backup' });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: name, style: { display: 'none' } });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast('Backup exported');
+}
+
+function importBackup() {
+  const input = h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' } });
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+      if (!Array.isArray(data.folders) || !Array.isArray(data.cards)) throw new Error('bad');
+    } catch (e) {
+      alertDialog({ title: 'Can’t import', message: 'That file is not a FlashCard backup.', actions: [{ label: 'OK', value: true, bold: true }] });
+      return;
+    }
+    const incoming = normalizeData(data);
+    const choice = await actionSheet(`Import ${plural(incoming.folders.length, 'folder')} and ${plural(incoming.cards.length, 'card')}`, [
+      { label: 'Merge with My Cards', value: 'merge' },
+      { label: 'Replace Everything', value: 'replace', danger: true },
+    ]);
+    if (!choice) return;
+    if (choice === 'replace') {
+      Store.data = incoming;
+    } else {
+      const fIds = new Set(Store.data.folders.map((f) => f.id));
+      const cIds = new Set(Store.data.cards.map((c) => c.id));
+      incoming.folders.forEach((f) => { if (!fIds.has(f.id)) Store.data.folders.push(f); });
+      incoming.cards.forEach((c) => { if (!cIds.has(c.id)) Store.data.cards.push(c); });
+    }
+    await Store.flush();
+    toast('Import complete');
+    render('none');
+  });
+  document.body.append(input);
+  input.click();
+}
+
+Views.settings = (r) => {
+  const nav = navbar({ title: 'Settings', backLabel: 'Folders' });
+  const st = stats(Model.cards);
+  const storageStatus = h('span', { class: 'row-meta' }, '…');
+  if (navigator.storage && navigator.storage.persisted) {
+    navigator.storage.persisted().then((p) => { storageStatus.textContent = p ? 'Protected' : (isStandalone() ? 'On device' : 'Browser'); }).catch(() => { storageStatus.textContent = 'On device'; });
+  } else storageStatus.textContent = 'On device';
+
+  const row = (iconName, color, title, sub, onClick, meta) =>
+    h(onClick ? 'button' : 'div', { class: 'row' + (onClick ? '' : ' static'), onclick: onClick },
+      h('span', { class: 'row-icon', style: { background: color }, svg: ICONS[iconName] }),
+      h('span', { class: 'row-main' }, h('div', { class: 'row-title' }, title), sub && h('div', { class: 'row-sub' }, sub)),
+      meta || (onClick ? chevron() : null));
+
+  const content = h('main', { class: 'content' },
+    h('div', { class: 'section-header' }, 'Your Data'),
+    h('div', { class: 'list' },
+      row('shield', '#34c759', 'Saved automatically', `${plural(Model.folders.length, 'folder')} · ${plural(st.total, 'card')}`, null, storageStatus)),
+    h('div', { class: 'section-footer' },
+      'Everything is stored on this device and kept between visits. ' +
+      (isIOS() && !isStandalone() ? 'For the safest storage on iPhone, add FlashCard to your Home Screen (Share › Add to Home Screen). ' : '') +
+      'Export a backup now and then to keep a copy elsewhere.'),
+
+    h('div', { class: 'section-header' }, 'Backup'),
+    h('div', { class: 'list' },
+      row('exportI', '#0a7aff', 'Export Backup', 'Save a .json file to Files, iCloud, etc.', exportBackup),
+      row('importI', '#5856d6', 'Import Backup', 'Restore or merge a backup file', importBackup)),
+
+    h('div', { class: 'section-header' }, 'About'),
+    h('div', { class: 'list' },
+      row('info', '#8e8e93', 'FlashCard', 'Flip cards, grade yourself: Again, Hard, Good, Easy. Cards you struggle with come back sooner.', null)),
+
+    h('div', { style: { marginTop: '30px' } },
+      h('div', { class: 'list plain' },
+        h('button', {
+          class: 'row action danger center',
+          onclick: async () => {
+            if (!(await confirmDialog('Delete all data?', 'Every folder and card will be permanently deleted. Export a backup first if you want to keep them.', 'Delete All', true))) return;
+            Store.data = normalizeData({});
+            await Store.flush();
+            toast('All data deleted');
+            stack.length = 1;
+            render('pop');
+          },
+        }, 'Delete All Data'))));
+
+  return h('div', { class: 'screen' }, nav, h('h1', { class: 'large-title' }, 'Settings'), content);
+};
+
+/* =====================================================================
+ * Boot
+ * ===================================================================*/
+(async function boot() {
+  await Store.load();
+  render('none');
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
+  }
+})();
