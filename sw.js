@@ -1,6 +1,6 @@
 // Service worker: caches the app shell so FlashCard opens offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = 'flashcard-v1';
+const VERSION = 'flashcard-v2';
 const SHELL = [
   './',
   './index.html',
@@ -10,7 +10,14 @@ const SHELL = [
   './icons/icon.svg',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './decks/lc150/index.js',
+  './decks/lc150/p1.js',
+  './decks/lc150/p2.js',
+  './decks/lc150/p3.js',
+  './decks/lc150/p4.js',
+  './decks/lc150/p5.js',
+  './decks/lc150/p6.js'
 ];
 
 self.addEventListener('install', (event) => {

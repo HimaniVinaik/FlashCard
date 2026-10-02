@@ -11,6 +11,10 @@ A simple, elegant flash card web app for iPhone, inspired by AnkiMobile.
 - **Flip**: tap a card to flip it with a 3D animation.
 - **Study Now**: Anki-style spaced repetition with **Again / Hard / Good / Easy**. Cards you struggle with come back sooner.
 - **Flip All**: shuffle through every card in a folder without changing its schedule.
+- **LC deck**: all 150 LeetCode Top Interview problems, added automatically in an **LC** folder with one subfolder per topic. The front has the problem and one example. The back has the approach, intuition, pseudocode, C++ solution and complexity.
+- **Review tracking**: each card shows when it is next due. The editor shows its interval, ease, review count and history, and can reset its progress. Folders show progress (unseen, learning, young, mature) and upcoming reviews for the next week. The home screen shows today's due count, reviews done and your streak.
+- **New cards per day**: limits how many new cards Study Now adds each day. The default is 20, and you can change it in Settings.
+- **Formatting**: card text supports `**bold**`, `` `code` ``, `## headings`, `- bullets` and fenced code blocks, with C++ syntax coloring.
 - **Saved automatically**: everything is stored on the device in IndexedDB and is still there when you reopen the app.
 - **Backup**: export all your data to a `.json` file, through the share sheet to Files or iCloud. You can import it again later, merging with or replacing what's there.
 - **Works offline**: it installs to the Home Screen as a full-screen app.
@@ -44,3 +48,5 @@ Installing to the Home Screen matters on iPhone. iOS can clear website data that
 | `app.js` | All app logic: storage, folders, cards, drawing pad, study mode |
 | `sw.js` | Service worker for offline use (bump `VERSION` when files change) |
 | `manifest.webmanifest`, `icons/` | Home Screen install metadata and icons |
+| `decks/lc150/` | The LC 150 deck: problems, solutions and the card builder |
+| `tests/` | Compiles and runs every C++ solution against its example (`node tests/run.js`) |

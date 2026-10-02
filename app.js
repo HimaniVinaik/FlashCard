@@ -143,7 +143,14 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 window.addEventListener('pagehide', () => { if (Store.timer) Store.flush(); });
 
 function emptySide() { return { text: '', strokes: [] }; }
-function newSrs() { return { state: 'new', due: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0, last: 0 }; }
+function newSrs() { return { state: 'new', due: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0, last: 0, history: [] }; }
+function normalizeSrs(s) {
+  const o = Object.assign(newSrs(), s && typeof s === 'object' ? s : {});
+  o.history = Array.isArray(o.history) ? o.history.filter(Array.isArray).slice(-HISTORY_MAX) : [];
+  return o;
+}
+const HISTORY_MAX = 30;
+const DEFAULT_SETTINGS = { newPerDay: 20 };
 
 function normalizeSide(s) {
   s = s && typeof s === 'object' ? s : {};
@@ -160,7 +167,7 @@ function normalizeCard(c) {
     back: normalizeSide(c.back),
     createdAt: Number(c.createdAt) || now(),
     updatedAt: Number(c.updatedAt) || now(),
-    srs: Object.assign(newSrs(), c.srs || {}),
+    srs: normalizeSrs(c.srs),
   };
 }
 function normalizeData(d) {
@@ -178,7 +185,79 @@ function normalizeData(d) {
     .filter((c) => c && c.id)
     .map(normalizeCard)
     .filter((c) => ids.has(c.folderId));
-  return { version: 1, folders, cards };
+  const packs = Array.isArray(d.packs) ? d.packs.filter((p) => typeof p === 'string') : [];
+  const settings = Object.assign({}, DEFAULT_SETTINGS, d.settings && typeof d.settings === 'object' ? d.settings : {});
+  if (!(Number(settings.newPerDay) >= 0)) settings.newPerDay = DEFAULT_SETTINGS.newPerDay;
+  const days = {};
+  if (d.days && typeof d.days === 'object') {
+    for (const [k, v] of Object.entries(d.days)) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v && typeof v === 'object') {
+        days[k] = { reviews: Number(v.reviews) || 0, newSeen: Number(v.newSeen) || 0, practice: Number(v.practice) || 0 };
+      }
+    }
+  }
+  return { version: 2, folders, cards, packs, settings, days };
+}
+
+/* ----- Built-in decks (loaded on demand from /decks) ----- */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => { s.remove(); reject(new Error('Could not load ' + src)); };
+    document.head.append(s);
+  });
+}
+let lcPromise = null;
+function loadLC150() {
+  if (!lcPromise) {
+    lcPromise = (async () => {
+      if (!window.LC150) await loadScript('decks/lc150/index.js');
+      for (const part of window.LC150.parts) await loadScript('decks/lc150/' + part);
+      if (window.LC150.problems.length !== 150) throw new Error('LC deck is incomplete');
+      return window.LC150;
+    })().catch((e) => {
+      lcPromise = null;
+      window.LC150 = undefined;
+      throw e;
+    });
+  }
+  return lcPromise;
+}
+/** Adds the LC folder, one subfolder per topic and all 150 cards. */
+function installLC150(deck) {
+  const t = now();
+  const root = { id: uid(), name: deck.name, parentId: null, createdAt: t };
+  Store.data.folders.push(root);
+  const subs = deck.topics.map((name, i) => {
+    const f = { id: uid(), name: `${String(i + 1).padStart(2, '0')} · ${name}`, parentId: root.id, createdAt: t + i };
+    Store.data.folders.push(f);
+    return f;
+  });
+  const ordered = deck.topics.flatMap((_, k) => deck.problems.filter((p) => p.k === k));
+  ordered.forEach((p, i) => {
+    const { front, back } = deck.build(p);
+    Store.data.cards.push(normalizeCard({
+      id: uid(), folderId: subs[p.k].id, front: { text: front }, back: { text: back }, createdAt: t + 1000 + i,
+    }));
+  });
+  if (!Store.data.packs.includes(deck.id)) Store.data.packs.push(deck.id);
+  return root;
+}
+/** Installs the LC deck once, the first time the app runs with this version. */
+async function ensurePacks() {
+  if (Store.data.packs.includes('lc150')) return;
+  try {
+    const deck = await loadLC150();
+    if (Store.data.packs.includes('lc150')) return;
+    installLC150(deck);
+    await Store.flush();
+    render('none');
+    toast('Added the LC deck: 150 interview problems');
+  } catch (e) {
+    console.warn('LC deck not installed yet', e);
+  }
 }
 
 function seed(d) {
@@ -269,7 +348,20 @@ const Model = {
 };
 
 function sideIsEmpty(s) { return !s.text.trim() && !s.strokes.length; }
-function firstLine(text) { return (text || '').trim().split('\n')[0]; }
+/** Text lines with formatting markers removed, for list previews. */
+function plainLines(text) {
+  return (text || '').split('\n')
+    .filter((l) => !/^\s*```/.test(l))
+    .map((l) => l.replace(/^#{1,3}\s+/, '').replace(/^\s*[-•]\s+/, '').replace(/\*\*|`/g, '').trim())
+    .filter(Boolean);
+}
+function cardTitle(c) {
+  return plainLines(c.front.text)[0] || (c.front.strokes.length ? 'Handwritten card' : 'Empty card');
+}
+function cardSubtitle(c) {
+  const title = cardTitle(c);
+  return plainLines(c.back.text).find((l) => l !== title) || (c.back.strokes.length ? '✎ Handwritten answer' : '—');
+}
 
 /* =====================================================================
  * Spaced repetition (simplified SM-2, Anki-style buttons)
@@ -282,17 +374,70 @@ function startOfDayPlus(days) {
 }
 function isDue(card, t = now()) { return card.srs.state !== 'new' && card.srs.due <= t; }
 
+const DAY = 24 * 60 * MIN;
+const MATURE_DAYS = 21;
+const GRADES = ['again', 'hard', 'good', 'easy'];
+
+/* ----- Daily study log: reviews done, new cards introduced, streak ----- */
+function dayKey(t = now()) {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function dayLog(t) { return Store.data.days[dayKey(t)] || { reviews: 0, newSeen: 0, practice: 0 }; }
+function logStudy(field) {
+  const k = dayKey();
+  const d = Store.data.days[k] || (Store.data.days[k] = { reviews: 0, newSeen: 0, practice: 0 });
+  d[field] = (d[field] || 0) + 1;
+}
+function newLeftToday() {
+  const limit = Number(Store.data.settings.newPerDay);
+  return Math.max(0, limit - dayLog().newSeen);
+}
+/** Consecutive days with any study, ending today (or yesterday if today has none yet). */
+function studyStreak() {
+  const studied = (d) => { const l = dayLog(d.getTime()); return l.reviews + l.practice > 0; };
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  if (!studied(d)) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (studied(d) && n < 3650) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
 function stats(cards) {
   const t = now();
-  let fresh = 0, due = 0;
-  cards.forEach((c) => { if (c.srs.state === 'new') fresh++; else if (c.srs.due <= t) due++; });
-  return { total: cards.length, new: fresh, due };
+  let fresh = 0, due = 0, learning = 0, young = 0, mature = 0;
+  cards.forEach((c) => {
+    const s = c.srs;
+    if (s.state === 'new') { fresh++; return; }
+    if (s.due <= t) due++;
+    if (s.state === 'learn') learning++;
+    else if (s.interval >= MATURE_DAYS) mature++;
+    else young++;
+  });
+  return { total: cards.length, new: fresh, newToday: Math.min(fresh, newLeftToday()), due, learning, young, mature };
+}
+
+/** Number of cards due on each of the next `days` days (index 0 = today, including overdue). */
+function forecast(cards, days = 7) {
+  const today = startOfDayPlus(0);
+  const out = new Array(days).fill(0);
+  let later = 0;
+  cards.forEach((c) => {
+    if (c.srs.state === 'new') return;
+    const dueDay = new Date(c.srs.due);
+    dueDay.setHours(0, 0, 0, 0); // compare calendar days, so DST changes don't shift buckets
+    const i = Math.max(0, Math.round((dueDay.getTime() - today) / DAY));
+    if (i < days) out[i]++; else later++;
+  });
+  return { days: out, later };
 }
 
 function applyGrade(srs, grade) {
   const t = now();
   srs.last = t;
   srs.reps++;
+  srs.history = (srs.history || []).concat([[t, GRADES.indexOf(grade)]]).slice(-HISTORY_MAX);
   if (srs.state === 'new' || srs.state === 'learn') {
     if (grade === 'again') { srs.state = 'learn'; srs.due = t + 1 * MIN; }
     else if (grade === 'hard') { srs.state = 'learn'; srs.due = t + 6 * MIN; }
@@ -345,6 +490,96 @@ function cardStatus(card) {
   if (s.state === 'new') return { label: 'New', cls: 'new' };
   if (s.due <= now()) return { label: s.state === 'learn' ? 'Learning' : 'Due', cls: 'due' };
   return { label: fmtDue(card), cls: '' };
+}
+
+/* =====================================================================
+ * Light text formatting for cards
+ *   **bold**   `code`   ## heading   - bullet   ```lang … ``` code block
+ * Built with DOM nodes only (never innerHTML), so card text cannot inject markup.
+ * ===================================================================*/
+const RICH_RE = /```|^#{1,3}\s|\*\*|^\s*[-•]\s|`[^`\n]+`/m;
+const isRich = (text) => RICH_RE.test(text || '');
+
+function inlineNodes(text) {
+  const out = [];
+  const re = /\*\*(.+?)\*\*|`([^`]+)`/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(m[1] != null ? h('strong', null, inlineNodes(m[1])) : h('code', { class: 'rt-code' }, m[2]));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+const CPP_KEYWORDS = new Set(('alignas alignof and auto bool break case catch char class const constexpr continue ' +
+  'decltype default delete do double else enum explicit extern false float for friend goto if inline int long ' +
+  'mutable namespace new noexcept not nullptr operator or private protected public return short signed sizeof ' +
+  'static static_cast struct switch template this throw true try typedef typename union unsigned using virtual ' +
+  'void volatile while').split(' '));
+const CPP_TYPES = new Set(('vector string unordered_map unordered_set map set multiset pair queue stack ' +
+  'priority_queue deque list tuple array greater less istringstream stringstream function size_t uint32_t ' +
+  'ListNode TreeNode Node Solution').split(' '));
+
+function highlightCpp(code, el) {
+  const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[uUlLfF]*\b)|(#\s*[a-z]+)|([A-Za-z_]\w*)/g;
+  let last = 0, m;
+  while ((m = re.exec(code))) {
+    if (m.index > last) el.append(code.slice(last, m.index));
+    let cls = null;
+    if (m[1]) cls = 'tk-com';
+    else if (m[2]) cls = 'tk-str';
+    else if (m[3]) cls = 'tk-num';
+    else if (m[4]) cls = 'tk-kw';
+    else if (CPP_KEYWORDS.has(m[5])) cls = 'tk-kw';
+    else if (CPP_TYPES.has(m[5])) cls = 'tk-type';
+    else if (code[re.lastIndex] === '(') cls = 'tk-fn';
+    el.append(cls ? h('span', { class: cls }, m[0]) : m[0]);
+    last = re.lastIndex;
+  }
+  if (last < code.length) el.append(code.slice(last));
+}
+
+function codeBlock(code, lang) {
+  const codeEl = h('code');
+  if (/^(cpp|c\+\+|cc|c|h|hpp)$/.test(lang)) highlightCpp(code, codeEl);
+  else codeEl.textContent = code;
+  return h('pre', { class: 'rt-pre', 'data-lang': lang || null }, codeEl);
+}
+
+function renderRich(text) {
+  const root = h('div', { class: 'rich' });
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  let para = [], list = null;
+  const flushPara = () => {
+    if (!para.length) return;
+    const p = h('p');
+    para.forEach((l, i) => { if (i) p.append(h('br')); p.append(...inlineNodes(l)); });
+    root.append(p);
+    para = [];
+  };
+  const flushList = () => { if (list) { root.append(list); list = null; } };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = line.match(/^\s*```\s*([\w+#-]*)\s*$/);
+    if (fence) {
+      flushPara(); flushList();
+      const body = [];
+      for (i++; i < lines.length && !/^\s*```\s*$/.test(lines[i]); i++) body.push(lines[i]);
+      root.append(codeBlock(body.join('\n'), fence[1].toLowerCase()));
+      continue;
+    }
+    const head = line.match(/^#{1,3}\s+(.*)$/);
+    if (head) { flushPara(); flushList(); root.append(h('div', { class: 'rt-h' }, inlineNodes(head[1]))); continue; }
+    const bullet = line.match(/^\s*[-•]\s+(.*)$/);
+    if (bullet) { flushPara(); if (!list) list = h('ul'); list.append(h('li', null, inlineNodes(bullet[1]))); continue; }
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    flushList();
+    para.push(line);
+  }
+  flushPara(); flushList();
+  return root;
 }
 
 /* =====================================================================
@@ -729,6 +964,54 @@ function toolbar(left, center, right) {
   return h('footer', { class: 'toolbar' }, h('div', null, left), h('div', { class: 'row-sub' }, center), h('div', null, right));
 }
 
+function statTile(num, label, cls) {
+  return h('div', { class: 'stat' + (cls ? ' ' + cls : '') }, h('div', { class: 'stat-num' }, num), h('div', { class: 'stat-label' }, label));
+}
+
+const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+const DATE_FMT = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const DATETIME_FMT = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** "Review schedule" block: card maturity and a 7-day forecast of due cards. */
+function scheduleSection(cards, st) {
+  const fc = forecast(cards, 7);
+  const studied = st.total - st.new;
+  const out = [
+    h('div', { class: 'section-header' }, 'Progress'),
+    h('div', { class: 'study-card' },
+      h('div', { class: 'stats compact' },
+        statTile(st.new, 'Unseen', 'new'),
+        statTile(st.learning, 'Learning', 'learn'),
+        statTile(st.young, 'Young', 'young'),
+        statTile(st.mature, 'Mature', 'mature')),
+      h('div', { class: 'meter', role: 'img', 'aria-label': `${studied} of ${st.total} cards started` },
+        ['mature', 'young', 'learn'].map((k) => {
+          const n = k === 'mature' ? st.mature : k === 'young' ? st.young : st.learning;
+          return n ? h('span', { class: 'meter-' + k, style: { width: `${(n / st.total) * 100}%` } }) : null;
+        })),
+      h('div', { class: 'row-sub', style: { whiteSpace: 'normal' } },
+        `${studied} of ${st.total} started. Young cards are due again within ${MATURE_DAYS} days; mature cards less often.`)),
+  ];
+  if (!studied) return out;
+  const rows = [];
+  fc.days.forEach((n, i) => {
+    if (!n) return;
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : WEEKDAY.format(d);
+    rows.push([label, n, i === 0 ? 'due' : '']);
+  });
+  if (fc.later) rows.push(['Later', fc.later, '']);
+  out.push(
+    h('div', { class: 'section-header' }, 'Upcoming Reviews'),
+    h('div', { class: 'list plain' }, rows.map(([label, n, cls]) =>
+      h('div', { class: 'row plain static' },
+        h('span', { class: 'row-main' }, label),
+        h('span', { class: 'row-meta' + (cls ? ' ' + cls : '') }, plural(n, 'card'))))),
+    h('div', { class: 'section-footer' }, `New cards per day: ${Store.data.settings.newPerDay >= 9999 ? 'no limit' : Store.data.settings.newPerDay}. You can change this in Settings.`));
+  return out;
+}
+
 function emptyState(iconName, title, text) {
   return h('div', { class: 'empty' }, h('div', { class: 'empty-icon', svg: ICONS[iconName] }), h('h3', null, title), h('div', null, text));
 }
@@ -779,13 +1062,13 @@ function folderRow(f, editing) {
     h('div', { class: 'row-sub' }, editing ? 'Tap to rename' : sub.join(' · '))),
   !editing && h('span', { class: 'row-meta' },
     st.due ? h('span', { class: 'badge', title: 'Due' }, st.due) : null,
-    st.new ? h('span', { class: 'badge new', title: 'New' }, st.new) : null,
+    st.newToday ? h('span', { class: 'badge new', title: 'New today' }, st.newToday) : null,
     chevron()));
 }
 
 function cardRow(c, editing) {
-  const frontTitle = firstLine(c.front.text) || (c.front.strokes.length ? 'Handwritten card' : 'Empty card');
-  const backSub = firstLine(c.back.text) || (c.back.strokes.length ? '✎ Handwritten answer' : '—');
+  const frontTitle = cardTitle(c);
+  const backSub = cardSubtitle(c);
   const status = cardStatus(c);
   return h('button', {
     class: 'row plain',
@@ -838,8 +1121,17 @@ Views.home = (r) => {
 
   if (folders.length) {
     const st = stats(Model.cards);
+    const today = dayLog();
+    const streak = studyStreak();
     content.append(
-      h('div', { class: 'section-header' }, `${plural(st.total, 'card')}${st.due ? ` · ${st.due} due` : ''}${st.new ? ` · ${st.new} new` : ''}`),
+      h('div', { class: 'study-card today-card' },
+        h('div', { class: 'today-title' }, 'Today'),
+        h('div', { class: 'stats compact' },
+          statTile(st.due, 'Due', 'due'),
+          statTile(st.newToday, 'New', 'new'),
+          statTile(today.reviews, 'Reviewed'),
+          statTile(streak ? `🔥${streak}` : '0', 'Streak'))),
+      h('div', { class: 'section-header' }, `${plural(folders.length, 'folder')} · ${plural(st.total, 'card')}`),
       h('div', { class: 'list' }, folders.map((f) => folderRow(f, r.editing)))
     );
   } else {
@@ -897,21 +1189,24 @@ Views.folder = (r) => {
   const content = h('main', { class: 'content' });
 
   if (deep.length) {
+    const toStudy = st.due + st.newToday;
     content.append(h('div', { class: 'study-card' },
       h('div', { class: 'stats' },
-        h('div', { class: 'stat due' }, h('div', { class: 'stat-num' }, st.due), h('div', { class: 'stat-label' }, 'Due')),
-        h('div', { class: 'stat new' }, h('div', { class: 'stat-num' }, st.new), h('div', { class: 'stat-label' }, 'New')),
-        h('div', { class: 'stat' }, h('div', { class: 'stat-num' }, st.total), h('div', { class: 'stat-label' }, 'Total'))),
+        statTile(st.due, 'Due', 'due'),
+        statTile(st.newToday, 'New today', 'new'),
+        statTile(st.total, 'Total')),
       h('div', { class: 'btn-row' },
         h('button', {
           class: 'btn',
-          disabled: !(st.due + st.new),
+          disabled: !toStudy,
           onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'due' }),
-        }, st.due + st.new ? 'Study Now' : 'All Caught Up ✓'),
+        }, toStudy ? 'Study Now' : 'All Caught Up ✓'),
         h('button', {
           class: 'btn secondary',
           onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'practice' }),
-        }, 'Flip All'))));
+        }, 'Flip All')),
+      !toStudy && st.new ? h('div', { class: 'row-sub', style: { whiteSpace: 'normal', textAlign: 'center' } },
+        `You've reached today's limit of new cards. ${plural(st.new, 'card')} not started yet.`) : null));
   }
 
   if (subs.length) {
@@ -920,6 +1215,7 @@ Views.folder = (r) => {
   if (cards.length) {
     content.append(h('div', { class: 'section-header' }, plural(cards.length, 'Card')), h('div', { class: 'list plain' }, cards.map((c) => cardRow(c, r.editing))));
   }
+  if (deep.length) content.append(...scheduleSection(deep, st));
   if (!subs.length && !cards.length) {
     content.append(emptyState('cards', 'No cards yet', 'Tap the ✎ button to create your first card.'),
       h('button', { class: 'btn', onclick: () => navigate({ view: 'editor', folderId: f.id }) }, 'New Card'));
@@ -1015,12 +1311,28 @@ Views.editor = (r) => {
     });
     ta.value = d[side].text;
     const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.max(120, ta.scrollHeight) + 'px'; };
-    ta.addEventListener('input', () => { d[side].text = ta.value; grow(); });
+    const styleTa = () => ta.classList.toggle('mono', isRich(ta.value));
+    ta.addEventListener('input', () => { d[side].text = ta.value; styleTa(); grow(); });
+    styleTa();
     requestAnimationFrame(grow);
     pads[side] = createDrawPad(d[side].strokes, r.tool);
+    const preview = h('div', { class: 'text-preview', style: { display: 'none' } });
+    const previewBtn = h('button', {
+      class: 'link-btn',
+      onclick: () => {
+        const on = preview.style.display === 'none';
+        if (on) preview.replaceChildren(d[side].text.trim() ? renderRich(d[side].text) : h('div', { class: 'face-empty' }, 'Nothing to preview'));
+        preview.style.display = on ? '' : 'none';
+        ta.style.display = on ? 'none' : '';
+        previewBtn.textContent = on ? 'Edit' : 'Preview';
+        if (!on) grow();
+      },
+    }, 'Preview');
     panels[side] = h('div', null,
-      h('div', { class: 'side-label' }, h('span', null, side === 'front' ? 'Front — text' : 'Back — text')),
+      h('div', { class: 'side-label' }, h('span', null, side === 'front' ? 'Front — text' : 'Back — text'), previewBtn),
       ta,
+      preview,
+      h('div', { class: 'format-hint' }, 'Formatting: **bold**, `code`, ## heading, - bullet, and ``` for code blocks.'),
       h('div', { class: 'side-label', style: { marginTop: '18px' } }, h('span', null, 'Handwriting'), h('span', null, 'finger or Apple Pencil')),
       pads[side].el);
     segButtons[side] = h('button', { onclick: () => showSide(side) }, side === 'front' ? 'Front' : 'Back');
@@ -1041,6 +1353,7 @@ Views.editor = (r) => {
       h('label', { class: 'row plain static' }, h('span', { class: 'row-main' }, 'Folder'), folderSelect)),
     !existing && h('div', { style: { marginTop: '22px' } },
       h('button', { class: 'btn secondary', onclick: () => save(true) }, 'Add & Create Another')),
+    existing && reviewProgress(existing, () => render('none')),
     existing && h('div', { style: { marginTop: '22px' } },
       h('div', { class: 'list plain' },
         h('button', {
@@ -1059,6 +1372,58 @@ Views.editor = (r) => {
   return screen;
 };
 
+/** Per-card spaced-repetition details for the editor: next review, interval, history. */
+function reviewProgress(card, onChange) {
+  const s = card.srs;
+  const t = now();
+  const row = (label, value, cls) =>
+    h('div', { class: 'row plain static' }, h('span', { class: 'row-main' }, label), h('span', { class: 'row-meta' + (cls ? ' ' + cls : '') }, value));
+  let status, next;
+  if (s.state === 'new') { status = 'New (not studied yet)'; next = 'When you study this folder'; }
+  else {
+    status = s.state === 'learn' ? 'Learning' : s.interval >= MATURE_DAYS ? 'Mature' : 'Young';
+    next = s.due <= t ? 'Now (due)' : `${s.state === 'learn' ? DATETIME_FMT.format(s.due) : DATE_FMT.format(s.due)} · ${fmtDue(card)}`;
+  }
+  const rows = [
+    row('Status', status),
+    row('Next review', next, s.state !== 'new' && s.due <= t ? 'due' : ''),
+  ];
+  if (s.state !== 'new') {
+    rows.push(
+      row('Interval', s.state === 'learn' ? 'Relearning' : plural(s.interval, 'day')),
+      row('Ease', `${Math.round(s.ease * 100)}%`),
+      row('Reviews', String(s.reps)),
+      row('Lapses (forgot)', String(s.lapses)),
+      row('Last reviewed', s.last ? DATETIME_FMT.format(s.last) : '—'));
+  }
+  const hist = (s.history || []).slice().reverse();
+  const out = h('div', null,
+    h('div', { class: 'section-header' }, 'Review Progress'),
+    h('div', { class: 'list plain' }, rows));
+  if (hist.length) {
+    out.append(
+      h('div', { class: 'section-header' }, 'History'),
+      h('div', { class: 'list plain' }, hist.slice(0, 10).map(([when, g]) =>
+        h('div', { class: 'row plain static' },
+          h('span', { class: 'row-main' }, DATETIME_FMT.format(when)),
+          h('span', { class: 'grade-chip ' + (GRADES[g] || 'good') }, (GRADES[g] || '?').replace(/^./, (c) => c.toUpperCase()))))));
+  }
+  if (s.state !== 'new') {
+    out.append(h('div', { class: 'list plain', style: { marginTop: '12px' } },
+      h('button', {
+        class: 'row action center',
+        onclick: async () => {
+          if (!(await confirmDialog('Reset progress?', 'This card will be treated as new again and its review history will be cleared.', 'Reset', true))) return;
+          card.srs = newSrs();
+          Store.save();
+          toast('Progress reset');
+          onChange();
+        },
+      }, 'Reset Progress')));
+  }
+  return out;
+}
+
 /* ----- Study session ----- */
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
@@ -1076,22 +1441,29 @@ function buildSession(folderId, mode) {
     const t = now();
     const learn = cards.filter((c) => c.srs.state === 'learn' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
     const review = cards.filter((c) => c.srs.state === 'review' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
-    const fresh = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt);
+    const fresh = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, newLeftToday()); // daily limit on new cards, like Anki
     queue = [...learn, ...review, ...fresh].map((c) => c.id);
   }
   return { queue, done: 0, flipped: false, mode };
 }
 
 function faceView(side, which) {
-  const inner = h('div', { class: 'face-inner', style: { margin: 'auto 0', display: 'flex', flexDirection: 'column', gap: '16px' } });
   const text = side.text.trim();
-  if (text) inner.append(h('div', { class: 'face-text' + (text.length > 140 || text.split('\n').length > 4 ? ' long' : '') }, side.text));
+  const rich = isRich(text);
+  // Short content is centered vertically; formatted (long) content starts at the top and scrolls.
+  const inner = h('div', { class: 'face-inner', style: { margin: rich ? '0' : 'auto 0', display: 'flex', flexDirection: 'column', gap: '16px' } });
+  if (text) {
+    inner.append(rich
+      ? renderRich(side.text)
+      : h('div', { class: 'face-text' + (text.length > 140 || text.split('\n').length > 4 ? ' long' : '') }, side.text));
+  }
   if (side.strokes.length) inner.append(drawingView(side.strokes, 'face-drawing'));
   if (!text && !side.strokes.length) inner.append(h('div', { class: 'face-empty' }, 'Nothing on this side'));
   return h('div', { class: 'face ' + which },
     h('div', { class: 'face-tag' + (which === 'back' ? ' back-tag' : '') }, which === 'front' ? 'Front' : 'Back'),
-    h('div', { class: 'face-body', style: { justifyContent: 'flex-start' } }, inner),
-    which === 'front' ? h('div', { class: 'tap-hint' }, 'Tap to flip') : null);
+    h('div', { class: 'face-body' + (rich ? ' rich-body' : '') }, inner),
+    which === 'front' && !rich ? h('div', { class: 'tap-hint' }, 'Tap to flip') : null);
 }
 
 Views.study = (r) => {
@@ -1152,14 +1524,19 @@ Views.study = (r) => {
       content.append(h('div', { class: 'counts' }, h('span', null, `${s.done + 1} / ${total}`)));
     }
 
+    // At rest the card is "flat" (no 3D transform) so long faces scroll reliably on iOS.
+    // The 3D transform is only switched on while the flip animation runs.
     const flipCard = h('div', {
-      class: 'flip-card' + (s.flipped ? ' flipped' : '') + (enter ? ' enter' : ''),
+      class: 'flip-card flat' + (s.flipped ? ' flipped' : ''),
       role: 'button',
       'aria-label': 'Flip card',
       onclick: () => flip(),
     }, faceView(card.front, 'front'), faceView(card.back, 'back'));
+    const scene = h('div', { class: 'flip-scene' + (enter ? ' enter' : '') }, flipCard);
     const answerBar = h('div', { class: 'answer-bar' });
-    content.append(h('div', { class: 'flip-scene' }, flipCard), answerBar);
+    content.append(scene, answerBar);
+    let flipToken = 0;
+    let graded = false;
 
     function renderAnswerBar() {
       answerBar.replaceChildren();
@@ -1177,14 +1554,31 @@ Views.study = (r) => {
     }
 
     function flip() {
+      if (graded) return;
+      // Leave flat mode without animating, so the flip starts from the current side.
+      flipCard.style.transition = 'none';
+      flipCard.classList.remove('flat');
+      void flipCard.offsetWidth;
+      flipCard.style.transition = '';
       s.flipped = !s.flipped;
       flipCard.classList.toggle('flipped', s.flipped);
+      flipCard.querySelectorAll('.face-body').forEach((b) => { b.scrollTop = 0; });
+      const token = ++flipToken;
+      setTimeout(() => { if (token === flipToken) flipCard.classList.add('flat'); }, 560);
       if (s.flipped && !s.revealed) { s.revealed = true; renderAnswerBar(); }
     }
 
     function grade(g) {
+      if (graded) return; // ignore double taps while the card animates out
+      graded = true;
       if (!practice) {
+        const wasNew = card.srs.state === 'new';
         applyGrade(card.srs, g);
+        logStudy('reviews');
+        if (wasNew) logStudy('newSeen');
+        Store.save();
+      } else {
+        logStudy('practice');
         Store.save();
       }
       s.queue.shift();
@@ -1192,7 +1586,7 @@ Views.study = (r) => {
       if (requeue) s.queue.push(card.id); else s.done++;
       s.flipped = false;
       s.revealed = false;
-      flipCard.classList.add('swipe-out-left');
+      scene.classList.add('swipe-out');
       setTimeout(() => draw(true), 220);
     }
 
@@ -1252,6 +1646,8 @@ function importBackup() {
       { label: 'Replace Everything', value: 'replace', danger: true },
     ]);
     if (!choice) return;
+    // Remember which built-in decks were installed, so they are not added again.
+    const packs = [...new Set([...Store.data.packs, ...incoming.packs])];
     if (choice === 'replace') {
       Store.data = incoming;
     } else {
@@ -1259,7 +1655,14 @@ function importBackup() {
       const cIds = new Set(Store.data.cards.map((c) => c.id));
       incoming.folders.forEach((f) => { if (!fIds.has(f.id)) Store.data.folders.push(f); });
       incoming.cards.forEach((c) => { if (!cIds.has(c.id)) Store.data.cards.push(c); });
+      for (const [k, v] of Object.entries(incoming.days)) {
+        const mine = Store.data.days[k] || { reviews: 0, newSeen: 0, practice: 0 };
+        Store.data.days[k] = {
+          reviews: Math.max(mine.reviews, v.reviews), newSeen: Math.max(mine.newSeen, v.newSeen), practice: Math.max(mine.practice, v.practice),
+        };
+      }
     }
+    Store.data.packs = packs;
     await Store.flush();
     toast('Import complete');
     render('none');
@@ -1291,6 +1694,37 @@ Views.settings = (r) => {
       (isIOS() && !isStandalone() ? 'For the safest storage on iPhone, add FlashCard to your Home Screen (Share › Add to Home Screen). ' : '') +
       'Export a backup now and then to keep a copy elsewhere.'),
 
+    h('div', { class: 'section-header' }, 'Study'),
+    h('div', { class: 'list' },
+      h('label', { class: 'row static' },
+        h('span', { class: 'row-icon', style: { background: '#34c759' }, svg: ICONS.cards }),
+        h('span', { class: 'row-main' }, h('div', { class: 'row-title' }, 'New cards per day'),
+          h('div', { class: 'row-sub' }, `${dayLog().newSeen} introduced today`)),
+        h('select', {
+          class: 'field',
+          style: { maxWidth: '40%' },
+          'aria-label': 'New cards per day',
+          onchange: (e) => { Store.data.settings.newPerDay = Number(e.target.value); Store.save(); toast('Saved'); },
+        }, [5, 10, 15, 20, 30, 50, 100, 9999].map((n) =>
+          h('option', { value: String(n), selected: Number(Store.data.settings.newPerDay) === n }, n === 9999 ? 'No limit' : String(n))))),
+      row('cards', '#ff9500', 'Add LC 150 Deck', 'Adds the LeetCode Top Interview 150 cards as a new LC folder', async () => {
+        const existing = Model.childFolders(null).some((f) => f.name === 'LC');
+        if (!(await confirmDialog('Add the LC deck?', existing
+          ? 'You already have an LC folder. This adds a second, fresh copy with all 150 cards.'
+          : 'This adds an LC folder with all 150 cards, grouped by topic.', 'Add'))) return;
+        try {
+          const deck = await loadLC150();
+          installLC150(deck);
+          await Store.flush();
+          toast('LC deck added');
+          render('none');
+        } catch (e) {
+          alertDialog({ title: 'Could not load the deck', message: 'Check your internet connection and try again.', actions: [{ label: 'OK', value: true, bold: true }] });
+        }
+      })),
+    h('div', { class: 'section-footer' },
+      'Study Now shows the cards that are due, plus up to this many new cards each day. Cards you get right come back after longer and longer gaps.'),
+
     h('div', { class: 'section-header' }, 'Backup'),
     h('div', { class: 'list' },
       row('exportI', '#0a7aff', 'Export Backup', 'Save a .json file to Files, iCloud, etc.', exportBackup),
@@ -1306,7 +1740,8 @@ Views.settings = (r) => {
           class: 'row action danger center',
           onclick: async () => {
             if (!(await confirmDialog('Delete all data?', 'Every folder and card will be permanently deleted. Export a backup first if you want to keep them.', 'Delete All', true))) return;
-            Store.data = normalizeData({});
+            // Keep settings and the record of installed decks, so the LC deck is not re-added.
+            Store.data = normalizeData({ packs: Store.data.packs, settings: Store.data.settings });
             await Store.flush();
             toast('All data deleted');
             stack.length = 1;
@@ -1326,4 +1761,5 @@ Views.settings = (r) => {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
   }
+  ensurePacks();
 })();
