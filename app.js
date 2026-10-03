@@ -225,8 +225,11 @@ const PACKS = [
     about: 'Miles to km, pounds to kg, cups, gallons, °F to °C and more' },
   { id: 'useful', global: 'USEFUL', base: 'decks/useful/', count: 112, label: 'Useful Facts', added: 'Added the Useful Facts deck: 112 cards',
     about: 'NATO alphabet, Roman numerals, first aid, math, science and more' },
+  { id: 'more-conversions', global: 'MORE_CONVERSIONS', base: 'decks/more-conversions/', count: 100, label: 'More Conversions',
+    added: 'Added the More Conversions deck: 100 cards',
+    about: 'Metric to US (liters to gallons, km to miles, °C to °F), metric prefixes, kitchen weights, everyday math' },
 ];
-const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6' };
+const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6', 'more-conversions': '#34c759' };
 const packPromises = {};
 function loadPack(def) {
   if (!packPromises[def.id]) {

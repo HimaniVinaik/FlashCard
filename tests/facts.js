@@ -2,7 +2,7 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const load = (dir, g) => { const c = { window: {} }; vm.createContext(c); vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'decks', dir, 'index.js'), 'utf8'), c); return c.window[g]; };
 const errs = [];
-for (const [dir, g] of [['conversions', 'CONVERSIONS'], ['useful', 'USEFUL']]) {
+for (const [dir, g] of [['conversions', 'CONVERSIONS'], ['useful', 'USEFUL'], ['more-conversions', 'MORE_CONVERSIONS']]) {
   const d = load(dir, g), seen = new Set();
   d.problems.forEach((p, i) => {
     const id = `${g} #${i + 1} ${p.front}`;
@@ -37,6 +37,37 @@ for (const [front, hint, exact] of checks) {
   const v = num(p.back), rel = Math.abs(v - exact) / Math.abs(exact);
   if (rel > 0.02) errs.push(`${front} ${hint}: card says ${p.back}, exact ${exact.toFixed(4)}`);
 }
+// Metric → US deck
+const more = load('more-conversions', 'MORE_CONVERSIONS').problems;
+const C2F = (c) => c * 9 / 5 + 32;
+const moreChecks = [
+  ['1 km', 'in miles', 1 / F.mi], ['5 km', 'in miles', 5 / F.mi], ['10 km', 'in miles', 10 / F.mi], ['100 km', 'in miles', 100 / F.mi],
+  ['1 meter', 'in feet', 100 / F.ft], ['1 meter', 'in inches', 100 / F.in], ['1 cm', 'in inches', 1 / F.in], ['1 mm', 'in inches', 0.1 / F.in], ['30 cm', 'in inches', 30 / F.in],
+  ['400 m', 'in miles', 0.4 / F.mi], ['1,500 m', 'in miles', 1.5 / F.mi],
+  ['1 kg', 'in pounds', 1 / F.lb], ['1 g', 'in ounces', 1 / F.oz], ['100 g', 'in ounces', 100 / F.oz], ['500 g', 'in pounds', 0.5 / F.lb],
+  ['50 kg', 'in pounds', 50 / F.lb], ['70 kg', 'in pounds', 70 / F.lb], ['1 metric tonne', 'in pounds', 1000 / F.lb],
+  ['1 liter', 'in US gallons', 1 / F.gal], ['1 liter', 'in US quarts', 1 / F.qt], ['1 liter', 'in fluid ounces', 1000 / F.floz], ['1 liter', 'in cups', 1000 / F.cup],
+  ['2 liters', 'in fluid ounces', 2000 / F.floz], ['750 mL', 'in fluid ounces', 750 / F.floz], ['500 mL', 'in fluid ounces', 500 / F.floz],
+  ['330 mL', 'in fluid ounces', 330 / F.floz], ['250 mL', 'in cups', 250 / F.cup], ['100 mL', 'in fluid ounces', 100 / F.floz],
+  ['15 mL', 'in tablespoons', 15 / (3 * F.tsp)], ['5 mL', 'in teaspoons', 5 / F.tsp],
+  ...[0, 10, 20, 25, 30, 37, 38, 100, 180, 200, 220].map((c) => [`${c} °C`, 'in Fahrenheit', C2F(c)]),
+  ['1 km/h', 'in mph', 1 / F.mi], ['50 km/h', 'in mph', 50 / F.mi], ['100 km/h', 'in mph', 100 / F.mi], ['120 km/h', 'in mph', 120 / F.mi],
+  ['1 m/s', 'in mph and km/h', 3.6 / F.mi], ['1 hectare', 'in acres', 10000 / 4046.8564224], ['1 m²', 'in square feet', 1 / Math.pow(F.ft / 100, 2)],
+  ['1 km²', 'in square miles', 1 / (F.mi * F.mi)], ['5 L/100 km', 'in mpg', (100 / 5) * F.gal / F.mi], ['8 L/100 km', 'in mpg', (100 / 8) * F.gal / F.mi],
+  ['1/8', 'as a decimal', 0.125], ['3/8', 'as a decimal', 0.375], ['5/8', 'as a decimal', 0.625], ['7/8', 'as a decimal', 0.875],
+  ['1/3', 'as a decimal', 1 / 3], ['2/3', 'as a decimal', 2 / 3], ['1/6', 'as a decimal', 1 / 6],
+  ['20 minutes', 'in hours', 1 / 3], ['100 Mbps', 'internet speed, in MB/s', 12.5], ['A 55-inch TV', 'in centimeters', 55 * F.in],
+];
+for (const [front, hint, exact] of moreChecks) {
+  const p = more.find((x) => x.front === front && x.hint === hint);
+  if (!p) { errs.push(`no card ${front} / ${hint}`); continue; }
+  const v = num(p.back), rel = Math.abs(v - exact) / Math.max(1e-9, Math.abs(exact));
+  if (rel > 0.02 && Math.abs(v - exact) > 0.5) errs.push(`${front} ${hint}: card says ${p.back}, exact ${exact.toFixed(4)}`);
+}
+const ftin = (cm) => { const inch = cm / F.in; return `${Math.floor(Math.round(inch) / 12)} ft ${Math.round(inch) % 12} in`; };
+for (const cm of [170, 180]) { const p = more.find((x) => x.front === `${cm} cm`); if (!p.back.includes(ftin(cm))) errs.push(`${cm} cm: card ${p.back}, expected ${ftin(cm)}`); }
+const f18 = more.find((x) => x.front === '−18 °C'); if (Math.abs(C2F(-18)) > 0.5 || !/0 °F/.test(f18.back)) errs.push('−18 °C');
+console.log(`more-conversions numeric checks: ${moreChecks.length + 3}`);
 const s = conv.find((x) => x.front === '1 stone'); if (!/6\.35/.test(s.back)) errs.push('stone kg');
 const t = conv.find((x) => x.front === '1 US ton'); if (!/907/.test(t.back)) errs.push('ton kg');
 const nato = load('useful', 'USEFUL').problems.filter((p) => p.k === 0 && /^[A-Z]$/.test(p.front));
