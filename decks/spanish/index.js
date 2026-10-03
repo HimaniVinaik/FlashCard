@@ -1,5 +1,6 @@
 /* Spanish beginner vocabulary deck (about Duolingo units 1–16).
  * Each line: spanish | spanish example sentence | english | english sentence
+ * Cards show the English side on the front and the Spanish side on the back.
  * Lines starting with "# " start a new topic.
  * Nouns include their article (el / la) so you learn the gender too.
  */
@@ -591,9 +592,10 @@ la invitación | Recibí una invitación a la boda. | the invitation | I receive
     parts: [],
     problems,
     expected: problems.length,
+    // English on the front, Spanish on the back: you recall the Spanish.
     build: (p) => ({
-      front: `**${p.es}**\n\n${p.esSentence}`,
-      back: `**${p.en}**\n\n${p.enSentence}`,
+      front: `**${p.en}**\n\n${p.enSentence}`,
+      back: `**${p.es}**\n\n${p.esSentence}`,
     }),
   };
 })();
