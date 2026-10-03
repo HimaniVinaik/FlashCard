@@ -20,15 +20,23 @@ return best == infinity ? 0 : best`,
 class Solution {
 public:
     int minSubArrayLen(int target, vector<int>& nums) {
-        int l = 0, sum = 0, best = INT_MAX;
-        for (int r = 0; r < (int)nums.size(); r++) {
-            sum += nums[r];
+        int left = 0;
+        int sum = 0; // sum of nums[left..right]
+        int best = INT_MAX;
+        for (int right = 0; right < (int)nums.size(); right++) {
+            // Grow the window to the right.
+            sum += nums[right];
+            // While the window is big enough, record it and try a shorter one.
             while (sum >= target) {
-                best = min(best, r - l + 1);
-                sum -= nums[l++];
+                best = min(best, right - left + 1);
+                sum -= nums[left];
+                left++;
             }
         }
-        return best == INT_MAX ? 0 : best;
+        if (best == INT_MAX) {
+            return 0; // no window was big enough
+        }
+        return best;
     }
 };`,
   tc: 'O(n), since each element enters and leaves the window once', sc: 'O(1)',
@@ -52,13 +60,18 @@ return best`,
 class Solution {
 public:
     int lengthOfLongestSubstring(string s) {
-        vector<int> last(256, -1);
-        int l = 0, best = 0;
-        for (int r = 0; r < (int)s.size(); r++) {
-            unsigned char c = s[r];
-            if (last[c] >= l) l = last[c] + 1;
-            last[c] = r;
-            best = max(best, r - l + 1);
+        // lastSeen[c] = last index where character c appeared (-1 = never)
+        vector<int> lastSeen(256, -1);
+        int left = 0; // the window s[left..right] has no repeats
+        int best = 0;
+        for (int right = 0; right < (int)s.size(); right++) {
+            unsigned char c = s[right];
+            // c already appears inside the window: move left just past it.
+            if (lastSeen[c] >= left) {
+                left = lastSeen[c] + 1;
+            }
+            lastSeen[c] = right;
+            best = max(best, right - left + 1);
         }
         return best;
     }
@@ -90,16 +103,26 @@ for off in 0 .. w-1:
 class Solution {
 public:
     vector<int> findSubstring(string s, vector<string>& words) {
-        vector<int> res;
-        int n = s.size(), k = words.size(), w = words[0].size();
-        if (n < k * w) return res;
+        vector<int> result;
+        int n = s.size();
+        int k = words.size();
+        int w = words[0].size(); // every word has this length
+        if (n < k * w) {
+            return result;
+        }
+        // How many times each word must appear.
         unordered_map<string, int> need;
-        for (auto& x : words) need[x]++;
-        for (int off = 0; off < w; off++) {
-            unordered_map<string, int> have;
-            int left = off, count = 0;
-            for (int j = off; j + w <= n; j += w) {
+        for (const string& word : words) {
+            need[word]++;
+        }
+        // Words can start at any offset 0..w-1. Scan each offset separately.
+        for (int offset = 0; offset < w; offset++) {
+            unordered_map<string, int> have; // word counts inside the window
+            int left = offset; // where the window starts
+            int count = 0;     // words inside the window
+            for (int j = offset; j + w <= n; j += w) {
                 string word = s.substr(j, w);
+                // Not a wanted word: no window can cross it. Start over after it.
                 if (!need.count(word)) {
                     have.clear();
                     count = 0;
@@ -108,20 +131,25 @@ public:
                 }
                 have[word]++;
                 count++;
+                // Too many copies of this word: shrink from the left.
                 while (have[word] > need[word]) {
-                    have[s.substr(left, w)]--;
+                    string leftWord = s.substr(left, w);
+                    have[leftWord]--;
                     left += w;
                     count--;
                 }
+                // Exactly k words in the window: found a match.
                 if (count == k) {
-                    res.push_back(left);
-                    have[s.substr(left, w)]--;
+                    result.push_back(left);
+                    // Slide forward by one word to look for the next match.
+                    string leftWord = s.substr(left, w);
+                    have[leftWord]--;
                     left += w;
                     count--;
                 }
             }
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n · w): each of the w offsets scans s once, with O(w) work per word', sc: 'O(k · w)',
@@ -151,20 +179,42 @@ return best found ? s.substr(best.start, best.len) : ""`,
 class Solution {
 public:
     string minWindow(string s, string t) {
+        // need[c] = how many more of character c the window still needs.
         vector<int> need(128, 0);
-        for (char c : t) need[c]++;
-        int missing = t.size(), l = 0, bestL = 0, bestLen = INT_MAX;
-        for (int r = 0; r < (int)s.size(); r++) {
-            if (need[s[r]]-- > 0) missing--;
+        for (char c : t) {
+            need[c]++;
+        }
+        int missing = t.size(); // characters of t still missing from the window
+        int left = 0;
+        int bestStart = 0;
+        int bestLength = INT_MAX;
+        for (int right = 0; right < (int)s.size(); right++) {
+            char c = s[right];
+            // Taking c only helps if the window still needed it.
+            if (need[c] > 0) {
+                missing--;
+            }
+            need[c]--;
+            // The window has everything: shrink it from the left as far as possible.
             while (missing == 0) {
-                if (r - l + 1 < bestLen) {
-                    bestLen = r - l + 1;
-                    bestL = l;
+                int length = right - left + 1;
+                if (length < bestLength) {
+                    bestLength = length;
+                    bestStart = left;
                 }
-                if (++need[s[l++]] > 0) missing++;
+                char leftChar = s[left];
+                need[leftChar]++;
+                // Dropping this character made the window miss something.
+                if (need[leftChar] > 0) {
+                    missing++;
+                }
+                left++;
             }
         }
-        return bestLen == INT_MAX ? "" : s.substr(bestL, bestLen);
+        if (bestLength == INT_MAX) {
+            return "";
+        }
+        return s.substr(bestStart, bestLength);
     }
 };`,
   tc: 'O(|s| + |t|)', sc: 'O(1), a fixed 128-entry table',
@@ -189,18 +239,26 @@ return true`,
 class Solution {
 public:
     bool isValidSudoku(vector<vector<char>>& board) {
-        int rows[9] = {}, cols[9] = {}, boxes[9] = {};
-        for (int r = 0; r < 9; r++)
+        // One bitmask per row, column and box. Bit d set = digit d+1 already seen.
+        int rows[9] = {};
+        int cols[9] = {};
+        int boxes[9] = {};
+        for (int r = 0; r < 9; r++) {
             for (int c = 0; c < 9; c++) {
-                if (board[r][c] == '.') continue;
+                if (board[r][c] == '.') {
+                    continue; // empty cell
+                }
                 int bit = 1 << (board[r][c] - '1');
-                int b = (r / 3) * 3 + c / 3;
-                if ((rows[r] & bit) || (cols[c] & bit) || (boxes[b] & bit))
+                int box = (r / 3) * 3 + c / 3; // which 3x3 box this cell is in
+                // Seen before in this row, column or box: invalid.
+                if ((rows[r] & bit) || (cols[c] & bit) || (boxes[box] & bit)) {
                     return false;
+                }
                 rows[r] |= bit;
                 cols[c] |= bit;
-                boxes[b] |= bit;
+                boxes[box] |= bit;
             }
+        }
         return true;
     }
 };`,
@@ -224,24 +282,39 @@ while top <= bot and left <= right:
 class Solution {
 public:
     vector<int> spiralOrder(vector<vector<int>>& matrix) {
-        vector<int> res;
-        int top = 0, bot = (int)matrix.size() - 1;
-        int left = 0, right = (int)matrix[0].size() - 1;
-        while (top <= bot && left <= right) {
-            for (int c = left; c <= right; c++) res.push_back(matrix[top][c]);
-            top++;
-            for (int r = top; r <= bot; r++) res.push_back(matrix[r][right]);
-            right--;
-            if (top <= bot) {
-                for (int c = right; c >= left; c--) res.push_back(matrix[bot][c]);
-                bot--;
+        vector<int> result;
+        // The part not visited yet is rows top..bottom, columns left..right.
+        int top = 0;
+        int bottom = (int)matrix.size() - 1;
+        int left = 0;
+        int right = (int)matrix[0].size() - 1;
+        while (top <= bottom && left <= right) {
+            // Top row, left to right.
+            for (int c = left; c <= right; c++) {
+                result.push_back(matrix[top][c]);
             }
+            top++;
+            // Right column, top to bottom.
+            for (int r = top; r <= bottom; r++) {
+                result.push_back(matrix[r][right]);
+            }
+            right--;
+            // Bottom row, right to left (if a row is still left).
+            if (top <= bottom) {
+                for (int c = right; c >= left; c--) {
+                    result.push_back(matrix[bottom][c]);
+                }
+                bottom--;
+            }
+            // Left column, bottom to top (if a column is still left).
             if (left <= right) {
-                for (int r = bot; r >= top; r--) res.push_back(matrix[r][left]);
+                for (int r = bottom; r >= top; r--) {
+                    result.push_back(matrix[r][left]);
+                }
                 left++;
             }
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(m · n)', sc: 'O(1) extra',
@@ -263,10 +336,16 @@ class Solution {
 public:
     void rotate(vector<vector<int>>& matrix) {
         int n = matrix.size();
-        for (int i = 0; i < n; i++)
-            for (int j = i + 1; j < n; j++)
+        // 1) Transpose: swap matrix[i][j] with matrix[j][i].
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
                 swap(matrix[i][j], matrix[j][i]);
-        for (auto& row : matrix) reverse(row.begin(), row.end());
+            }
+        }
+        // 2) Reverse each row. Together this is a 90° clockwise turn.
+        for (auto& row : matrix) {
+            reverse(row.begin(), row.end());
+        }
     }
 };`,
   tc: 'O(n²)', sc: 'O(1)',
@@ -292,17 +371,33 @@ for i = m-1 down to 0:
 class Solution {
 public:
     void setZeroes(vector<vector<int>>& matrix) {
-        int m = matrix.size(), n = matrix[0].size();
-        bool firstCol = false;
+        int m = matrix.size();
+        int n = matrix[0].size();
+        // Row 0 and column 0 are used as markers. matrix[0][0] is shared,
+        // so column 0 gets its own flag.
+        bool firstColHasZero = false;
+        // Pass 1: mark every row and column that contains a zero.
         for (int i = 0; i < m; i++) {
-            if (matrix[i][0] == 0) firstCol = true;
-            for (int j = 1; j < n; j++)
-                if (matrix[i][j] == 0) matrix[i][0] = matrix[0][j] = 0;
+            if (matrix[i][0] == 0) {
+                firstColHasZero = true;
+            }
+            for (int j = 1; j < n; j++) {
+                if (matrix[i][j] == 0) {
+                    matrix[i][0] = 0; // mark row i
+                    matrix[0][j] = 0; // mark column j
+                }
+            }
         }
+        // Pass 2: fill in zeros. Go bottom-up so row 0's markers are used last.
         for (int i = m - 1; i >= 0; i--) {
-            for (int j = n - 1; j >= 1; j--)
-                if (matrix[i][0] == 0 || matrix[0][j] == 0) matrix[i][j] = 0;
-            if (firstCol) matrix[i][0] = 0;
+            for (int j = n - 1; j >= 1; j--) {
+                if (matrix[i][0] == 0 || matrix[0][j] == 0) {
+                    matrix[i][j] = 0;
+                }
+            }
+            if (firstColHasZero) {
+                matrix[i][0] = 0;
+            }
         }
     }
 };`,
@@ -325,22 +420,38 @@ for each cell: cell >>= 1`,
 class Solution {
 public:
     void gameOfLife(vector<vector<int>>& board) {
-        int m = board.size(), n = board[0].size();
-        for (int i = 0; i < m; i++)
+        int m = board.size();
+        int n = board[0].size();
+        // Each cell stores two bits: bit 0 = current state, bit 1 = next state.
+        for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
+                // Count live neighbors using only bit 0 (the current state).
                 int live = 0;
-                for (int di = -1; di <= 1; di++)
+                for (int di = -1; di <= 1; di++) {
                     for (int dj = -1; dj <= 1; dj++) {
-                        if (di == 0 && dj == 0) continue;
-                        int r = i + di, c = j + dj;
-                        if (r >= 0 && r < m && c >= 0 && c < n)
+                        if (di == 0 && dj == 0) {
+                            continue; // skip the cell itself
+                        }
+                        int r = i + di;
+                        int c = j + dj;
+                        if (r >= 0 && r < m && c >= 0 && c < n) {
                             live += board[r][c] & 1;
+                        }
                     }
-                if (live == 3 || (live == 2 && (board[i][j] & 1)))
+                }
+                bool alive = board[i][j] & 1;
+                // Alive next round: exactly 3 neighbors, or alive now with 2.
+                if (live == 3 || (alive && live == 2)) {
                     board[i][j] |= 2;
+                }
             }
-        for (auto& row : board)
-            for (int& x : row) x >>= 1;
+        }
+        // Shift the next state into place.
+        for (auto& row : board) {
+            for (int& cell : row) {
+                cell = cell >> 1;
+            }
+        }
     }
 };`,
   tc: 'O(m · n)', sc: 'O(1)',
@@ -361,10 +472,17 @@ return true`,
 class Solution {
 public:
     bool canConstruct(string ransomNote, string magazine) {
-        int cnt[26] = {};
-        for (char c : magazine) cnt[c - 'a']++;
-        for (char c : ransomNote)
-            if (--cnt[c - 'a'] < 0) return false;
+        // count[c] = how many of letter c the magazine still has
+        int count[26] = {};
+        for (char c : magazine) {
+            count[c - 'a']++;
+        }
+        for (char c : ransomNote) {
+            count[c - 'a']--; // use one letter
+            if (count[c - 'a'] < 0) {
+                return false; // ran out of this letter
+            }
+        }
         return true;
     }
 };`,
@@ -387,11 +505,18 @@ return true`,
 class Solution {
 public:
     bool isIsomorphic(string s, string t) {
-        int a[256] = {}, b[256] = {};
+        // Last position (+1) where each character was seen. 0 = never seen.
+        int lastS[256] = {};
+        int lastT[256] = {};
         for (int i = 0; i < (int)s.size(); i++) {
-            unsigned char x = s[i], y = t[i];
-            if (a[x] != b[y]) return false;
-            a[x] = b[y] = i + 1;
+            unsigned char a = s[i];
+            unsigned char b = t[i];
+            // A consistent mapping means both were last seen at the same place.
+            if (lastS[a] != lastT[b]) {
+                return false;
+            }
+            lastS[a] = i + 1;
+            lastT[b] = i + 1;
         }
         return true;
     }
@@ -418,21 +543,32 @@ return true`,
 class Solution {
 public:
     bool wordPattern(string pattern, string s) {
+        // Split s into words.
         istringstream in(s);
         vector<string> words;
-        string w;
-        while (in >> w) words.push_back(w);
-        if (words.size() != pattern.size()) return false;
-        unordered_map<char, string> p2w;
-        unordered_map<string, char> w2p;
+        string word;
+        while (in >> word) {
+            words.push_back(word);
+        }
+        if (words.size() != pattern.size()) {
+            return false;
+        }
+        // The mapping must work in both directions.
+        unordered_map<char, string> letterToWord;
+        unordered_map<string, char> wordToLetter;
         for (int i = 0; i < (int)words.size(); i++) {
-            char c = pattern[i];
-            auto a = p2w.find(c);
-            auto b = w2p.find(words[i]);
-            if (a != p2w.end() && a->second != words[i]) return false;
-            if (b != w2p.end() && b->second != c) return false;
-            p2w[c] = words[i];
-            w2p[words[i]] = c;
+            char letter = pattern[i];
+            const string& w = words[i];
+            auto a = letterToWord.find(letter);
+            if (a != letterToWord.end() && a->second != w) {
+                return false; // this letter already maps to another word
+            }
+            auto b = wordToLetter.find(w);
+            if (b != wordToLetter.end() && b->second != letter) {
+                return false; // this word already maps to another letter
+            }
+            letterToWord[letter] = w;
+            wordToLetter[w] = letter;
         }
         return true;
     }
@@ -455,14 +591,20 @@ return all counts are 0`,
 class Solution {
 public:
     bool isAnagram(string s, string t) {
-        if (s.size() != t.size()) return false;
-        int cnt[26] = {};
-        for (int i = 0; i < (int)s.size(); i++) {
-            cnt[s[i] - 'a']++;
-            cnt[t[i] - 'a']--;
+        if (s.size() != t.size()) {
+            return false;
         }
-        for (int c : cnt)
-            if (c != 0) return false;
+        int count[26] = {};
+        for (int i = 0; i < (int)s.size(); i++) {
+            count[s[i] - 'a']++; // a letter from s
+            count[t[i] - 'a']--; // a letter from t
+        }
+        // Anagrams leave every count at zero.
+        for (int c : count) {
+            if (c != 0) {
+                return false;
+            }
+        }
         return true;
     }
 };`,
@@ -485,15 +627,18 @@ return values of groups`,
 class Solution {
 public:
     vector<vector<string>> groupAnagrams(vector<string>& strs) {
+        // Anagrams have the same letters once sorted, so use that as the key.
         unordered_map<string, vector<string>> groups;
-        for (auto& s : strs) {
+        for (const string& s : strs) {
             string key = s;
             sort(key.begin(), key.end());
             groups[key].push_back(s);
         }
-        vector<vector<string>> res;
-        for (auto& [key, g] : groups) res.push_back(move(g));
-        return res;
+        vector<vector<string>> result;
+        for (auto& entry : groups) {
+            result.push_back(entry.second);
+        }
+        return result;
     }
 };`,
   tc: 'O(n · k log k), where k is the longest string', sc: 'O(n · k)',
@@ -514,10 +659,15 @@ for i, x in nums:
 class Solution {
 public:
     vector<int> twoSum(vector<int>& nums, int target) {
+        // value -> index, for every number seen so far
         unordered_map<int, int> seen;
         for (int i = 0; i < (int)nums.size(); i++) {
-            auto it = seen.find(target - nums[i]);
-            if (it != seen.end()) return {it->second, i};
+            int partner = target - nums[i];
+            // Have we already seen the number that completes the pair?
+            auto it = seen.find(partner);
+            if (it != seen.end()) {
+                return {it->second, i};
+            }
             seen[nums[i]] = i;
         }
         return {};
@@ -541,22 +691,26 @@ while fast != 1 and slow != fast:
 return fast == 1`,
   cpp: R`
 class Solution {
+    // Sum of the squares of the digits of x.
     int next(int x) {
-        int s = 0;
-        while (x) {
-            int d = x % 10;
-            s += d * d;
+        int sum = 0;
+        while (x > 0) {
+            int digit = x % 10;
+            sum += digit * digit;
             x /= 10;
         }
-        return s;
+        return sum;
     }
 public:
     bool isHappy(int n) {
-        int slow = n, fast = next(n);
+        // Floyd: slow moves 1 step, fast moves 2. They always meet inside a cycle.
+        int slow = n;
+        int fast = next(n);
         while (fast != 1 && slow != fast) {
             slow = next(slow);
             fast = next(next(fast));
         }
+        // Happy if the cycle we reached is just 1 -> 1.
         return fast == 1;
     }
 };`,
@@ -579,11 +733,15 @@ return false`,
 class Solution {
 public:
     bool containsNearbyDuplicate(vector<int>& nums, int k) {
-        unordered_map<int, int> last;
+        // value -> the most recent index where it appeared
+        unordered_map<int, int> lastIndex;
         for (int i = 0; i < (int)nums.size(); i++) {
-            auto it = last.find(nums[i]);
-            if (it != last.end() && i - it->second <= k) return true;
-            last[nums[i]] = i;
+            auto it = lastIndex.find(nums[i]);
+            // Same value seen within k positions?
+            if (it != lastIndex.end() && i - it->second <= k) {
+                return true;
+            }
+            lastIndex[nums[i]] = i;
         }
         return false;
     }
@@ -610,13 +768,19 @@ return best`,
 class Solution {
 public:
     int longestConsecutive(vector<int>& nums) {
-        unordered_set<int> s(nums.begin(), nums.end());
+        unordered_set<int> numbers(nums.begin(), nums.end());
         int best = 0;
-        for (int x : s) {
-            if (s.count(x - 1)) continue;
-            int len = 1;
-            while (s.count(x + len)) len++;
-            best = max(best, len);
+        for (int x : numbers) {
+            // Only start counting at the beginning of a run.
+            if (numbers.count(x - 1)) {
+                continue;
+            }
+            // Count x, x+1, x+2, ... while they exist.
+            int length = 1;
+            while (numbers.count(x + length)) {
+                length++;
+            }
+            best = max(best, length);
         }
         return best;
     }
@@ -641,16 +805,24 @@ while i < n:
 class Solution {
 public:
     vector<string> summaryRanges(vector<int>& nums) {
-        vector<string> res;
+        vector<string> result;
         int n = nums.size();
-        for (int i = 0; i < n;) {
+        int i = 0; // start of the current range
+        while (i < n) {
+            // Extend j while the next number is exactly one more.
             int j = i;
-            while (j + 1 < n && (long long)nums[j + 1] == (long long)nums[j] + 1) j++;
-            if (i == j) res.push_back(to_string(nums[i]));
-            else res.push_back(to_string(nums[i]) + "->" + to_string(nums[j]));
+            while (j + 1 < n && (long long)nums[j + 1] == (long long)nums[j] + 1) {
+                j++;
+            }
+            if (i == j) {
+                result.push_back(to_string(nums[i]));
+            } else {
+                result.push_back(to_string(nums[i]) + "->" + to_string(nums[j]));
+            }
+            // The next range starts after this one.
             i = j + 1;
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(1) extra',
@@ -675,15 +847,19 @@ return res`,
 class Solution {
 public:
     vector<vector<int>> merge(vector<vector<int>>& intervals) {
+        // Sort by start, so overlapping intervals end up next to each other.
         sort(intervals.begin(), intervals.end());
-        vector<vector<int>> res;
-        for (auto& iv : intervals) {
-            if (!res.empty() && iv[0] <= res.back()[1])
-                res.back()[1] = max(res.back()[1], iv[1]);
-            else
-                res.push_back(iv);
+        vector<vector<int>> merged;
+        for (const auto& interval : intervals) {
+            if (!merged.empty() && interval[0] <= merged.back()[1]) {
+                // Overlaps the last merged interval: extend its end.
+                merged.back()[1] = max(merged.back()[1], interval[1]);
+            } else {
+                // No overlap: start a new merged interval.
+                merged.push_back(interval);
+            }
         }
-        return res;
+        return merged;
     }
 };`,
   tc: 'O(n log n)', sc: 'O(n) for the output',
@@ -708,18 +884,27 @@ class Solution {
 public:
     vector<vector<int>> insert(vector<vector<int>>& intervals,
                                vector<int>& newInterval) {
-        vector<vector<int>> res;
-        int i = 0, n = intervals.size();
-        while (i < n && intervals[i][1] < newInterval[0])
-            res.push_back(intervals[i++]);
+        vector<vector<int>> result;
+        int i = 0;
+        int n = intervals.size();
+        // 1) Intervals that end before the new one starts.
+        while (i < n && intervals[i][1] < newInterval[0]) {
+            result.push_back(intervals[i]);
+            i++;
+        }
+        // 2) Intervals that overlap the new one: merge them into it.
         while (i < n && intervals[i][0] <= newInterval[1]) {
             newInterval[0] = min(newInterval[0], intervals[i][0]);
             newInterval[1] = max(newInterval[1], intervals[i][1]);
             i++;
         }
-        res.push_back(newInterval);
-        while (i < n) res.push_back(intervals[i++]);
-        return res;
+        result.push_back(newInterval);
+        // 3) Intervals that start after the new one ends.
+        while (i < n) {
+            result.push_back(intervals[i]);
+            i++;
+        }
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(n) for the output',
@@ -743,19 +928,23 @@ for [s, e] in points[1:]:
 return arrows`,
   cpp: R`
 class Solution {
+    // Sort balloons by where they end.
+    static bool byEnd(const vector<int>& a, const vector<int>& b) {
+        return a[1] < b[1];
+    }
 public:
     int findMinArrowShots(vector<vector<int>>& points) {
-        sort(points.begin(), points.end(),
-             [](const vector<int>& a, const vector<int>& b) {
-                 return a[1] < b[1];
-             });
+        sort(points.begin(), points.end(), byEnd);
         int arrows = 1;
-        int pos = points[0][1];
-        for (int i = 1; i < (int)points.size(); i++)
-            if (points[i][0] > pos) {
+        // Shoot the first arrow at the end of the first balloon.
+        int arrowPos = points[0][1];
+        for (int i = 1; i < (int)points.size(); i++) {
+            // This balloon starts after the arrow, so it needs a new arrow.
+            if (points[i][0] > arrowPos) {
                 arrows++;
-                pos = points[i][1];
+                arrowPos = points[i][1];
             }
+        }
         return arrows;
     }
 };`,
@@ -780,17 +969,29 @@ return stack is empty`,
 class Solution {
 public:
     bool isValid(string s) {
-        stack<char> st;
+        stack<char> open; // opening brackets not closed yet
         for (char c : s) {
+            // An opening bracket: remember it.
             if (c == '(' || c == '[' || c == '{') {
-                st.push(c);
+                open.push(c);
                 continue;
             }
-            char open = c == ')' ? '(' : c == ']' ? '[' : '{';
-            if (st.empty() || st.top() != open) return false;
-            st.pop();
+            // A closing bracket must match the most recent opening one.
+            char expected;
+            if (c == ')') {
+                expected = '(';
+            } else if (c == ']') {
+                expected = '[';
+            } else {
+                expected = '{';
+            }
+            if (open.empty() || open.top() != expected) {
+                return false;
+            }
+            open.pop();
         }
-        return st.empty();
+        // Valid only if nothing is left unclosed.
+        return open.empty();
     }
 };`,
   tc: 'O(n)', sc: 'O(n)',
@@ -813,20 +1014,31 @@ return "/" + join(stack, "/")`,
 class Solution {
 public:
     string simplifyPath(string path) {
-        vector<string> st;
+        vector<string> dirs; // used as a stack of directory names
         stringstream ss(path);
         string part;
+        // Split the path on '/'.
         while (getline(ss, part, '/')) {
-            if (part.empty() || part == ".") continue;
+            if (part.empty() || part == ".") {
+                continue; // "//" or "." changes nothing
+            }
             if (part == "..") {
-                if (!st.empty()) st.pop_back();
+                // Go up one level, if there is one.
+                if (!dirs.empty()) {
+                    dirs.pop_back();
+                }
             } else {
-                st.push_back(part);
+                dirs.push_back(part);
             }
         }
-        string res;
-        for (auto& d : st) res += "/" + d;
-        return res.empty() ? "/" : res;
+        if (dirs.empty()) {
+            return "/";
+        }
+        string result;
+        for (const string& d : dirs) {
+            result += "/" + d;
+        }
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(n)',
@@ -846,20 +1058,30 @@ top():   return st.top.val
 getMin(): return st.top.min`,
   cpp: R`
 class MinStack {
-    vector<pair<int, int>> st; // (value, minimum so far)
+    // Each entry stores (value, minimum of the stack up to this point).
+    vector<pair<int, int>> st;
 public:
     MinStack() {}
 
     void push(int val) {
-        int m = st.empty() ? val : min(val, st.back().second);
-        st.push_back({val, m});
+        int currentMin = val;
+        if (!st.empty()) {
+            currentMin = min(val, st.back().second);
+        }
+        st.push_back({val, currentMin});
     }
 
-    void pop() { st.pop_back(); }
+    void pop() {
+        st.pop_back();
+    }
 
-    int top() { return st.back().first; }
+    int top() {
+        return st.back().first;
+    }
 
-    int getMin() { return st.back().second; }
+    int getMin() {
+        return st.back().second;
+    }
 };`,
   tc: 'O(1) per operation', sc: 'O(n)',
   test: R`MinStack m; m.push(-2); m.push(0); m.push(-3); assert(m.getMin()==-3); m.pop(); assert(m.top()==0 && m.getMin()==-2);`,
@@ -883,18 +1105,29 @@ return pop()`,
 class Solution {
 public:
     int evalRPN(vector<string>& tokens) {
-        vector<long long> st;
-        for (auto& t : tokens) {
-            if (t.size() == 1 && string("+-*/").find(t[0]) != string::npos) {
-                long long b = st.back(); st.pop_back();
-                long long a = st.back(); st.pop_back();
-                if (t[0] == '+') st.push_back(a + b);
-                else if (t[0] == '-') st.push_back(a - b);
-                else if (t[0] == '*') st.push_back(a * b);
-                else st.push_back(a / b);
-            } else {
-                st.push_back(stoll(t));
+        vector<long long> st; // stack of operands
+        for (const string& token : tokens) {
+            bool isOperator = token == "+" || token == "-" || token == "*" || token == "/";
+            if (!isOperator) {
+                st.push_back(stoll(token));
+                continue;
             }
+            // Pop the right operand first, then the left one.
+            long long b = st.back();
+            st.pop_back();
+            long long a = st.back();
+            st.pop_back();
+            long long result;
+            if (token == "+") {
+                result = a + b;
+            } else if (token == "-") {
+                result = a - b;
+            } else if (token == "*") {
+                result = a * b;
+            } else {
+                result = a / b; // C++ division truncates toward zero
+            }
+            st.push_back(result);
         }
         return (int)st.back();
     }
@@ -921,29 +1154,40 @@ return result + sign*num`,
 class Solution {
 public:
     int calculate(string s) {
-        long long result = 0, num = 0;
-        int sign = 1;
-        stack<pair<long long, int>> st; // (result before '(', sign before '(')
+        long long result = 0; // running total at the current level
+        long long number = 0; // the number being read
+        int sign = 1;         // sign in front of "number"
+        // For each '(' we save the total and the sign from outside it.
+        stack<pair<long long, int>> saved;
         for (char c : s) {
             if (isdigit((unsigned char)c)) {
-                num = num * 10 + (c - '0');
+                number = number * 10 + (c - '0');
             } else if (c == '+' || c == '-') {
-                result += sign * num;
-                num = 0;
-                sign = (c == '+') ? 1 : -1;
+                // Finish the previous number, then remember the new sign.
+                result += sign * number;
+                number = 0;
+                if (c == '+') {
+                    sign = 1;
+                } else {
+                    sign = -1;
+                }
             } else if (c == '(') {
-                st.push({result, sign});
+                // Start a fresh sum inside the parentheses.
+                saved.push({result, sign});
                 result = 0;
                 sign = 1;
             } else if (c == ')') {
-                result += sign * num;
-                num = 0;
-                auto [prev, sg] = st.top();
-                st.pop();
-                result = prev + sg * result;
+                // Finish the inner sum and combine it with the outside.
+                result += sign * number;
+                number = 0;
+                long long outerResult = saved.top().first;
+                int outerSign = saved.top().second;
+                saved.pop();
+                result = outerResult + outerSign * result;
             }
+            // Spaces are simply skipped.
         }
-        return (int)(result + sign * num);
+        return (int)(result + sign * number);
     }
 };`,
   tc: 'O(n)', sc: 'O(n) for nested parentheses',

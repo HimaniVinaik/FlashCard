@@ -11,7 +11,7 @@ A simple, elegant flash card web app for iPhone, inspired by AnkiMobile.
 - **Flip**: tap a card to flip it with a 3D animation.
 - **Study Now**: Anki-style spaced repetition with **Again / Hard / Good / Easy**. Cards you struggle with come back sooner.
 - **Flip All**: shuffle through every card in a folder without changing its schedule.
-- **LC deck**: all 150 LeetCode Top Interview problems, added automatically in an **LC** folder with one subfolder per topic. The front has the problem and one example. The back has the approach, intuition, pseudocode, C++ solution and complexity.
+- **LC deck**: all 150 LeetCode Top Interview problems, added automatically in an **LC** folder with one subfolder per topic. The front has the problem and one example. The back has the approach, intuition, pseudocode, a commented step-by-step C++ solution and complexity. When a built-in deck's cards are improved, already-installed copies update in place and keep their review progress.
 - **Spanish deck**: 529 beginner words, roughly Duolingo units 1–16, in a **Spanish** folder with 19 topic subfolders. The front has the English word and an example sentence. The back has the Spanish word (nouns include *el* / *la*) and the sentence in Spanish.
 - **Conversions deck**: 52 cards in a **Conversions** folder: length, weight, volume and cooking, temperature, area, speed and energy. US units are on the front, metric on the back.
 - **Useful Facts deck**: 112 cards in a **Useful Facts** folder: the NATO phonetic alphabet, Roman numerals, emergency numbers and first aid, time and calendar, math, science and geography, food safety temperatures and tech basics.
@@ -55,4 +55,4 @@ Installing to the Home Screen matters on iPhone. iOS can clear website data that
 | `decks/lc150/` | The LC 150 deck: problems, solutions and the card builder |
 | `decks/spanish/` | The Spanish vocabulary deck (`node tests/spanish.js` validates it) |
 | `decks/conversions/`, `decks/more-conversions/`, `decks/useful/` | The Conversions, More Conversions and Useful Facts decks (`node tests/facts.js` validates them) |
-| `tests/` | Compiles and runs every C++ solution against its example (`node tests/run.js`) |
+| `tests/` | Compiles and runs every C++ solution against its examples and checks the readability rules (`node tests/run.js`) |

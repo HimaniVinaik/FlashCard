@@ -57,6 +57,8 @@
   window.LC150 = {
     id: 'lc150',
     name: 'LC',
+    version: 2, // 2 = commented, step-by-step C++ solutions
+    key: (p) => String(p.n),
     topics: TOPICS,
     parts: ['p1.js', 'p2.js', 'p3.js', 'p4.js', 'p5.js', 'p6.js'],
     problems: [],

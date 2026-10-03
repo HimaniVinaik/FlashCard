@@ -20,8 +20,12 @@ build(lo, hi):
     return root`,
   cpp: R`
 class Solution {
+    // Build a balanced BST from nums[lo..hi].
     TreeNode* build(vector<int>& nums, int lo, int hi) {
-        if (lo > hi) return nullptr;
+        if (lo > hi) {
+            return nullptr;
+        }
+        // The middle value becomes the root, so both sides get the same size.
         int mid = lo + (hi - lo) / 2;
         TreeNode* root = new TreeNode(nums[mid]);
         root->left = build(nums, lo, mid - 1);
@@ -52,28 +56,46 @@ sort(head):
     return merge(sort(head), sort(second))`,
   cpp: R`
 class Solution {
+    // Merge two sorted lists into one.
     ListNode* merge(ListNode* a, ListNode* b) {
         ListNode dummy(0);
         ListNode* tail = &dummy;
-        while (a && b) {
-            if (a->val <= b->val) { tail->next = a; a = a->next; }
-            else { tail->next = b; b = b->next; }
+        while (a != nullptr && b != nullptr) {
+            if (a->val <= b->val) {
+                tail->next = a;
+                a = a->next;
+            } else {
+                tail->next = b;
+                b = b->next;
+            }
             tail = tail->next;
         }
-        tail->next = a ? a : b;
+        if (a != nullptr) {
+            tail->next = a;
+        } else {
+            tail->next = b;
+        }
         return dummy.next;
     }
 public:
     ListNode* sortList(ListNode* head) {
-        if (!head || !head->next) return head;
-        ListNode *slow = head, *fast = head->next;
-        while (fast && fast->next) {
+        if (head == nullptr || head->next == nullptr) {
+            return head; // 0 or 1 node: already sorted
+        }
+        // Find the middle. slow stops at the last node of the first half.
+        ListNode* slow = head;
+        ListNode* fast = head->next;
+        while (fast != nullptr && fast->next != nullptr) {
             slow = slow->next;
             fast = fast->next->next;
         }
-        ListNode* second = slow->next;
+        // Cut the list in two.
+        ListNode* secondHalf = slow->next;
         slow->next = nullptr;
-        return merge(sortList(head), sortList(second));
+        // Sort each half, then merge them.
+        ListNode* left = sortList(head);
+        ListNode* right = sortList(secondHalf);
+        return merge(left, right);
     }
 };`,
   tc: 'O(n log n)', sc: 'O(log n) recursion',
@@ -94,20 +116,31 @@ build(r, c, size):
     return internal(tl, tr, bl, br)`,
   cpp: R`
 class Solution {
-    Node* build(vector<vector<int>>& g, int r, int c, int n) {
-        if (n == 1) return new Node(g[r][c] == 1, true);
-        int h = n / 2;
-        Node* tl = build(g, r, c, h);
-        Node* tr = build(g, r, c + h, h);
-        Node* bl = build(g, r + h, c, h);
-        Node* br = build(g, r + h, c + h, h);
-        if (tl->isLeaf && tr->isLeaf && bl->isLeaf && br->isLeaf &&
-            tl->val == tr->val && tr->val == bl->val && bl->val == br->val) {
-            bool v = tl->val;
-            delete tl; delete tr; delete bl; delete br;
-            return new Node(v, true);
+    // Build the quad tree for the size x size square whose top-left is (r, c).
+    Node* build(vector<vector<int>>& grid, int r, int c, int size) {
+        if (size == 1) {
+            return new Node(grid[r][c] == 1, true); // a single cell is a leaf
         }
-        return new Node(true, false, tl, tr, bl, br);
+        int half = size / 2;
+        Node* topLeft = build(grid, r, c, half);
+        Node* topRight = build(grid, r, c + half, half);
+        Node* bottomLeft = build(grid, r + half, c, half);
+        Node* bottomRight = build(grid, r + half, c + half, half);
+        bool allLeaves = topLeft->isLeaf && topRight->isLeaf
+                      && bottomLeft->isLeaf && bottomRight->isLeaf;
+        bool sameValue = topLeft->val == topRight->val
+                      && topRight->val == bottomLeft->val
+                      && bottomLeft->val == bottomRight->val;
+        // All four quarters hold the same single value: merge them into one leaf.
+        if (allLeaves && sameValue) {
+            bool value = topLeft->val;
+            delete topLeft;
+            delete topRight;
+            delete bottomLeft;
+            delete bottomRight;
+            return new Node(value, true);
+        }
+        return new Node(true, false, topLeft, topRight, bottomLeft, bottomRight);
     }
 public:
     Node* construct(vector<vector<int>>& grid) {
@@ -139,20 +172,33 @@ while heap:
 return dummy.next`,
   cpp: R`
 class Solution {
+    // Orders the heap so the SMALLEST value is on top.
+    struct Greater {
+        bool operator()(ListNode* a, ListNode* b) const {
+            return a->val > b->val;
+        }
+    };
 public:
     ListNode* mergeKLists(vector<ListNode*>& lists) {
-        auto cmp = [](ListNode* a, ListNode* b) { return a->val > b->val; };
-        priority_queue<ListNode*, vector<ListNode*>, decltype(cmp)> pq(cmp);
-        for (ListNode* l : lists)
-            if (l) pq.push(l);
+        priority_queue<ListNode*, vector<ListNode*>, Greater> heap;
+        // Start with the head of every non-empty list.
+        for (ListNode* list : lists) {
+            if (list != nullptr) {
+                heap.push(list);
+            }
+        }
         ListNode dummy(0);
         ListNode* tail = &dummy;
-        while (!pq.empty()) {
-            ListNode* node = pq.top();
-            pq.pop();
-            tail->next = node;
-            tail = node;
-            if (node->next) pq.push(node->next);
+        while (!heap.empty()) {
+            // The smallest head overall goes next.
+            ListNode* smallest = heap.top();
+            heap.pop();
+            tail->next = smallest;
+            tail = smallest;
+            // Its successor becomes a new candidate.
+            if (smallest->next != nullptr) {
+                heap.push(smallest->next);
+            }
         }
         return dummy.next;
     }
@@ -176,10 +222,12 @@ return best`,
 class Solution {
 public:
     int maxSubArray(vector<int>& nums) {
-        int cur = nums[0], best = nums[0];
+        int current = nums[0]; // best sum of a subarray ending at index i
+        int best = nums[0];
         for (int i = 1; i < (int)nums.size(); i++) {
-            cur = max(nums[i], cur + nums[i]);
-            best = max(best, cur);
+            // Either extend the previous subarray, or start fresh at nums[i].
+            current = max(nums[i], current + nums[i]);
+            best = max(best, current);
         }
         return best;
     }
@@ -204,15 +252,24 @@ return maxS < 0 ? maxS : max(maxS, total - minS)`,
 class Solution {
 public:
     int maxSubarraySumCircular(vector<int>& nums) {
-        int curMax = 0, curMin = 0, maxS = INT_MIN, minS = INT_MAX, total = 0;
+        int total = 0;
+        int currentMax = 0;
+        int bestMax = INT_MIN; // best subarray that does not wrap around
+        int currentMin = 0;
+        int bestMin = INT_MAX; // worst subarray, to cut out of the middle
         for (int x : nums) {
-            curMax = max(x, curMax + x);
-            maxS = max(maxS, curMax);
-            curMin = min(x, curMin + x);
-            minS = min(minS, curMin);
+            currentMax = max(x, currentMax + x);
+            bestMax = max(bestMax, currentMax);
+            currentMin = min(x, currentMin + x);
+            bestMin = min(bestMin, currentMin);
             total += x;
         }
-        return maxS < 0 ? maxS : max(maxS, total - minS);
+        // All numbers negative: the wrap-around option would be empty.
+        if (bestMax < 0) {
+            return bestMax;
+        }
+        // Either no wrap, or wrap = everything except the worst middle block.
+        return max(bestMax, total - bestMin);
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -235,11 +292,16 @@ return lo`,
 class Solution {
 public:
     int searchInsert(vector<int>& nums, int target) {
-        int lo = 0, hi = nums.size();
+        // Find the first index whose value is >= target.
+        int lo = 0;
+        int hi = nums.size(); // the answer can be nums.size() (insert at the end)
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (nums[mid] < target) lo = mid + 1;
-            else hi = mid;
+            if (nums[mid] < target) {
+                lo = mid + 1; // the answer is to the right of mid
+            } else {
+                hi = mid; // mid could be the answer
+            }
         }
         return lo;
     }
@@ -266,14 +328,23 @@ return false`,
 class Solution {
 public:
     bool searchMatrix(vector<vector<int>>& matrix, int target) {
-        int m = matrix.size(), n = matrix[0].size();
-        int lo = 0, hi = m * n - 1;
+        int rows = matrix.size();
+        int cols = matrix[0].size();
+        // Treat the matrix as one sorted array of rows * cols values.
+        int lo = 0;
+        int hi = rows * cols - 1;
         while (lo <= hi) {
             int mid = lo + (hi - lo) / 2;
-            int v = matrix[mid / n][mid % n];
-            if (v == target) return true;
-            if (v < target) lo = mid + 1;
-            else hi = mid - 1;
+            // Turn the flat index back into (row, column).
+            int value = matrix[mid / cols][mid % cols];
+            if (value == target) {
+                return true;
+            }
+            if (value < target) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
         return false;
     }
@@ -298,11 +369,17 @@ return lo`,
 class Solution {
 public:
     int findPeakElement(vector<int>& nums) {
-        int lo = 0, hi = (int)nums.size() - 1;
+        int lo = 0;
+        int hi = (int)nums.size() - 1;
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (nums[mid] < nums[mid + 1]) lo = mid + 1;
-            else hi = mid;
+            if (nums[mid] < nums[mid + 1]) {
+                // Going uphill: there must be a peak to the right.
+                lo = mid + 1;
+            } else {
+                // Going downhill: mid, or something to its left, is a peak.
+                hi = mid;
+            }
         }
         return lo;
     }
@@ -332,16 +409,27 @@ return -1`,
 class Solution {
 public:
     int search(vector<int>& nums, int target) {
-        int lo = 0, hi = (int)nums.size() - 1;
+        int lo = 0;
+        int hi = (int)nums.size() - 1;
         while (lo <= hi) {
             int mid = lo + (hi - lo) / 2;
-            if (nums[mid] == target) return mid;
+            if (nums[mid] == target) {
+                return mid;
+            }
             if (nums[lo] <= nums[mid]) {
-                if (nums[lo] <= target && target < nums[mid]) hi = mid - 1;
-                else lo = mid + 1;
+                // The left half [lo..mid] is sorted.
+                if (nums[lo] <= target && target < nums[mid]) {
+                    hi = mid - 1; // target is inside the sorted left half
+                } else {
+                    lo = mid + 1;
+                }
             } else {
-                if (nums[mid] < target && target <= nums[hi]) lo = mid + 1;
-                else hi = mid - 1;
+                // The right half [mid..hi] is sorted.
+                if (nums[mid] < target && target <= nums[hi]) {
+                    lo = mid + 1; // target is inside the sorted right half
+                } else {
+                    hi = mid - 1;
+                }
             }
         }
         return -1;
@@ -363,20 +451,30 @@ if first == n or nums[first] != target: return [-1, -1]
 return [first, lb(target + 1) - 1]`,
   cpp: R`
 class Solution {
+    // First index whose value is >= x (nums.size() if there is none).
     int lowerBound(vector<int>& nums, long long x) {
-        int lo = 0, hi = nums.size();
+        int lo = 0;
+        int hi = nums.size();
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (nums[mid] < x) lo = mid + 1;
-            else hi = mid;
+            if (nums[mid] < x) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
         }
         return lo;
     }
 public:
     vector<int> searchRange(vector<int>& nums, int target) {
         int first = lowerBound(nums, target);
-        if (first == (int)nums.size() || nums[first] != target) return {-1, -1};
-        return {first, lowerBound(nums, (long long)target + 1) - 1};
+        // target isn't in the array.
+        if (first == (int)nums.size() || nums[first] != target) {
+            return {-1, -1};
+        }
+        // The last target sits just before the first value bigger than target.
+        int last = lowerBound(nums, (long long)target + 1) - 1;
+        return {first, last};
     }
 };`,
   tc: 'O(log n)', sc: 'O(1)',
@@ -399,11 +497,17 @@ return nums[lo]`,
 class Solution {
 public:
     int findMin(vector<int>& nums) {
-        int lo = 0, hi = (int)nums.size() - 1;
+        int lo = 0;
+        int hi = (int)nums.size() - 1;
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (nums[mid] > nums[hi]) lo = mid + 1;
-            else hi = mid;
+            if (nums[mid] > nums[hi]) {
+                // The drop (and the minimum) is to the right of mid.
+                lo = mid + 1;
+            } else {
+                // [mid..hi] is sorted, so the minimum is mid or to its left.
+                hi = mid;
+            }
         }
         return nums[lo];
     }
@@ -433,21 +537,38 @@ while lo <= hi:
 class Solution {
 public:
     double findMedianSortedArrays(vector<int>& a, vector<int>& b) {
-        if (a.size() > b.size()) return findMedianSortedArrays(b, a);
-        int m = a.size(), n = b.size(), half = (m + n + 1) / 2;
-        int lo = 0, hi = m;
+        // Binary search over the smaller array.
+        if (a.size() > b.size()) {
+            return findMedianSortedArrays(b, a);
+        }
+        int m = a.size();
+        int n = b.size();
+        int half = (m + n + 1) / 2; // how many values go in the left half
+        int lo = 0;
+        int hi = m;
         while (lo <= hi) {
-            int i = lo + (hi - lo) / 2, j = half - i;
-            int aL = i == 0 ? INT_MIN : a[i - 1];
-            int aR = i == m ? INT_MAX : a[i];
-            int bL = j == 0 ? INT_MIN : b[j - 1];
-            int bR = j == n ? INT_MAX : b[j];
-            if (aL <= bR && bL <= aR) {
-                if ((m + n) % 2) return max(aL, bL);
-                return ((double)max(aL, bL) + min(aR, bR)) / 2.0;
+            // Take i values from a and j values from b for the left half.
+            int i = lo + (hi - lo) / 2;
+            int j = half - i;
+            // The values on either side of each cut (±infinity past the ends).
+            int aLeft = (i == 0) ? INT_MIN : a[i - 1];
+            int aRight = (i == m) ? INT_MAX : a[i];
+            int bLeft = (j == 0) ? INT_MIN : b[j - 1];
+            int bRight = (j == n) ? INT_MAX : b[j];
+            if (aLeft <= bRight && bLeft <= aRight) {
+                // Correct cut: everything on the left <= everything on the right.
+                int leftMax = max(aLeft, bLeft);
+                if ((m + n) % 2 == 1) {
+                    return leftMax;
+                }
+                int rightMin = min(aRight, bRight);
+                return ((double)leftMax + rightMin) / 2.0;
             }
-            if (aL > bR) hi = i - 1;
-            else lo = i + 1;
+            if (aLeft > bRight) {
+                hi = i - 1; // took too many values from a
+            } else {
+                lo = i + 1; // took too few values from a
+            }
         }
         return 0.0;
     }
@@ -471,11 +592,16 @@ return heap.top`,
 class Solution {
 public:
     int findKthLargest(vector<int>& nums, int k) {
+        // A min-heap holding the k largest values seen so far.
         priority_queue<int, vector<int>, greater<int>> heap;
         for (int x : nums) {
             heap.push(x);
-            if ((int)heap.size() > k) heap.pop();
+            // More than k values: drop the smallest one.
+            if ((int)heap.size() > k) {
+                heap.pop();
+            }
         }
+        // The smallest of the k largest values is the k-th largest.
         return heap.top();
     }
 };`,
@@ -502,16 +628,26 @@ public:
     int findMaximizedCapital(int k, int w, vector<int>& profits,
                              vector<int>& capital) {
         int n = profits.size();
-        vector<pair<int, int>> proj(n);
-        for (int i = 0; i < n; i++) proj[i] = {capital[i], profits[i]};
-        sort(proj.begin(), proj.end());
-        priority_queue<int> heap;
-        int i = 0;
-        while (k--) {
-            while (i < n && proj[i].first <= w) heap.push(proj[i++].second);
-            if (heap.empty()) break;
-            w += heap.top();
-            heap.pop();
+        // Sort the projects by how much capital they need.
+        vector<pair<int, int>> projects(n); // (capital needed, profit)
+        for (int i = 0; i < n; i++) {
+            projects[i] = {capital[i], profits[i]};
+        }
+        sort(projects.begin(), projects.end());
+        priority_queue<int> affordable; // profits of projects we can start now
+        int next = 0; // first project we couldn't afford yet
+        for (int round = 0; round < k; round++) {
+            // Unlock every project our capital now covers.
+            while (next < n && projects[next].first <= w) {
+                affordable.push(projects[next].second);
+                next++;
+            }
+            if (affordable.empty()) {
+                break; // nothing we can afford
+            }
+            // Do the most profitable affordable project.
+            w += affordable.top();
+            affordable.pop();
         }
         return w;
     }
@@ -537,19 +673,29 @@ class Solution {
 public:
     vector<vector<int>> kSmallestPairs(vector<int>& nums1, vector<int>& nums2,
                                        int k) {
-        using T = tuple<long long, int, int>;
-        priority_queue<T, vector<T>, greater<T>> pq;
-        int m = nums1.size(), n = nums2.size();
-        for (int i = 0; i < min(m, k); i++)
-            pq.push({(long long)nums1[i] + nums2[0], i, 0});
-        vector<vector<int>> res;
-        while (k-- > 0 && !pq.empty()) {
-            auto [s, i, j] = pq.top();
-            pq.pop();
-            res.push_back({nums1[i], nums2[j]});
-            if (j + 1 < n) pq.push({(long long)nums1[i] + nums2[j + 1], i, j + 1});
+        // Heap entries are (sum, i, j), with the smallest sum on top.
+        typedef tuple<long long, int, int> Entry;
+        priority_queue<Entry, vector<Entry>, greater<Entry>> heap;
+        int m = nums1.size();
+        int n = nums2.size();
+        // Each row i starts with its smallest pair, (i, 0).
+        for (int i = 0; i < min(m, k); i++) {
+            heap.push({(long long)nums1[i] + nums2[0], i, 0});
         }
-        return res;
+        vector<vector<int>> result;
+        while (k > 0 && !heap.empty()) {
+            Entry top = heap.top();
+            heap.pop();
+            int i = get<1>(top);
+            int j = get<2>(top);
+            result.push_back({nums1[i], nums2[j]});
+            k--;
+            // The next candidate in row i is (i, j + 1).
+            if (j + 1 < n) {
+                heap.push({(long long)nums1[i] + nums2[j + 1], i, j + 1});
+            }
+        }
+        return result;
     }
 };`,
   tc: 'O(k log k)', sc: 'O(k)',
@@ -571,24 +717,28 @@ findMedian():
     return lo.size > hi.size ? lo.top : (lo.top + hi.top) / 2`,
   cpp: R`
 class MedianFinder {
-    priority_queue<int> lo;                             // max-heap
-    priority_queue<int, vector<int>, greater<int>> hi;  // min-heap
+    priority_queue<int> low;                             // smaller half, biggest on top
+    priority_queue<int, vector<int>, greater<int>> high; // larger half, smallest on top
 public:
     MedianFinder() {}
 
     void addNum(int num) {
-        lo.push(num);
-        hi.push(lo.top());
-        lo.pop();
-        if (hi.size() > lo.size()) {
-            lo.push(hi.top());
-            hi.pop();
+        // Add to the low half, then pass its biggest value to the high half.
+        low.push(num);
+        high.push(low.top());
+        low.pop();
+        // Keep low the same size as high, or one bigger.
+        if (high.size() > low.size()) {
+            low.push(high.top());
+            high.pop();
         }
     }
 
     double findMedian() {
-        if (lo.size() > hi.size()) return lo.top();
-        return ((double)lo.top() + hi.top()) / 2.0;
+        if (low.size() > high.size()) {
+            return low.top(); // odd count: the middle value
+        }
+        return ((double)low.top() + high.top()) / 2.0;
     }
 };`,
   tc: 'O(log n) to add, O(1) to find the median', sc: 'O(n)',
@@ -610,17 +760,27 @@ return reverse(out)`,
 class Solution {
 public:
     string addBinary(string a, string b) {
-        string out;
-        int i = (int)a.size() - 1, j = (int)b.size() - 1, carry = 0;
-        while (i >= 0 || j >= 0 || carry) {
-            int s = carry;
-            if (i >= 0) s += a[i--] - '0';
-            if (j >= 0) s += b[j--] - '0';
-            out.push_back('0' + s % 2);
-            carry = s / 2;
+        string result;
+        int i = (int)a.size() - 1;
+        int j = (int)b.size() - 1;
+        int carry = 0;
+        // Add from the rightmost digits, like long addition.
+        while (i >= 0 || j >= 0 || carry > 0) {
+            int sum = carry;
+            if (i >= 0) {
+                sum += a[i] - '0';
+                i--;
+            }
+            if (j >= 0) {
+                sum += b[j] - '0';
+                j--;
+            }
+            result.push_back('0' + sum % 2); // this digit
+            carry = sum / 2;
         }
-        reverse(out.begin(), out.end());
-        return out;
+        // We built the answer backwards.
+        reverse(result.begin(), result.end());
+        return result;
     }
 };`,
   tc: 'O(max(m, n))', sc: 'O(max(m, n))',
@@ -642,12 +802,14 @@ return res`,
 class Solution {
 public:
     uint32_t reverseBits(uint32_t n) {
-        uint32_t res = 0;
+        uint32_t result = 0;
         for (int i = 0; i < 32; i++) {
-            res = (res << 1) | (n & 1);
-            n >>= 1;
+            uint32_t lowestBit = n & 1;
+            // Shift the result left and append the bit we took from n.
+            result = (result << 1) | lowestBit;
+            n = n >> 1;
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(32) = O(1)', sc: 'O(1)',
@@ -671,8 +833,9 @@ public:
     int hammingWeight(int n) {
         unsigned int x = n;
         int count = 0;
-        while (x) {
-            x &= x - 1;
+        // x & (x - 1) clears the lowest set bit.
+        while (x != 0) {
+            x = x & (x - 1);
             count++;
         }
         return count;
@@ -695,9 +858,12 @@ return res`,
 class Solution {
 public:
     int singleNumber(vector<int>& nums) {
-        int res = 0;
-        for (int x : nums) res ^= x;
-        return res;
+        // x ^ x = 0 and x ^ 0 = x, so every pair cancels out.
+        int result = 0;
+        for (int x : nums) {
+            result ^= x;
+        }
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -719,11 +885,15 @@ return ones`,
 class Solution {
 public:
     int singleNumber(vector<int>& nums) {
-        int ones = 0, twos = 0;
+        // For each bit, count how many numbers have it set, modulo 3.
+        // "ones" holds bits seen once, "twos" holds bits seen twice.
+        int ones = 0;
+        int twos = 0;
         for (int x : nums) {
             ones = (ones ^ x) & ~twos;
             twos = (twos ^ x) & ~ones;
         }
+        // Bits from numbers seen 3 times cancel out, leaving the single number.
         return ones;
     }
 };`,
@@ -744,7 +914,11 @@ return right`,
 class Solution {
 public:
     int rangeBitwiseAnd(int left, int right) {
-        while (right > left) right &= right - 1;
+        // Clear the lowest set bit of right until it is no bigger than left.
+        // What remains is the binary prefix shared by every number in the range.
+        while (right > left) {
+            right = right & (right - 1);
+        }
         return right;
     }
 };`,

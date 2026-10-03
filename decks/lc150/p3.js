@@ -21,12 +21,17 @@ return false`,
 class Solution {
 public:
     bool hasCycle(ListNode* head) {
-        ListNode *slow = head, *fast = head;
-        while (fast && fast->next) {
-            slow = slow->next;
-            fast = fast->next->next;
-            if (slow == fast) return true;
+        ListNode* slow = head;
+        ListNode* fast = head;
+        while (fast != nullptr && fast->next != nullptr) {
+            slow = slow->next;       // 1 step
+            fast = fast->next->next; // 2 steps
+            // Inside a cycle, fast eventually catches up with slow.
+            if (slow == fast) {
+                return true;
+            }
         }
+        // fast reached the end of the list: there is no cycle.
         return false;
     }
 };`,
@@ -51,16 +56,23 @@ return dummy.next`,
 class Solution {
 public:
     ListNode* addTwoNumbers(ListNode* l1, ListNode* l2) {
-        ListNode dummy(0);
+        ListNode dummy(0); // placeholder in front of the result
         ListNode* tail = &dummy;
         int carry = 0;
-        while (l1 || l2 || carry) {
-            int s = carry;
-            if (l1) { s += l1->val; l1 = l1->next; }
-            if (l2) { s += l2->val; l2 = l2->next; }
-            tail->next = new ListNode(s % 10);
+        while (l1 != nullptr || l2 != nullptr || carry != 0) {
+            int sum = carry;
+            if (l1 != nullptr) {
+                sum += l1->val;
+                l1 = l1->next;
+            }
+            if (l2 != nullptr) {
+                sum += l2->val;
+                l2 = l2->next;
+            }
+            // Write the ones digit and carry the rest.
+            tail->next = new ListNode(sum % 10);
             tail = tail->next;
-            carry = s / 10;
+            carry = sum / 10;
         }
         return dummy.next;
     }
@@ -86,14 +98,25 @@ return dummy.next`,
 class Solution {
 public:
     ListNode* mergeTwoLists(ListNode* a, ListNode* b) {
-        ListNode dummy(0);
+        ListNode dummy(0); // placeholder in front of the result
         ListNode* tail = &dummy;
-        while (a && b) {
-            if (a->val <= b->val) { tail->next = a; a = a->next; }
-            else { tail->next = b; b = b->next; }
+        // Repeatedly take the smaller of the two heads.
+        while (a != nullptr && b != nullptr) {
+            if (a->val <= b->val) {
+                tail->next = a;
+                a = a->next;
+            } else {
+                tail->next = b;
+                b = b->next;
+            }
             tail = tail->next;
         }
-        tail->next = a ? a : b;
+        // One list is used up: attach the rest of the other one.
+        if (a != nullptr) {
+            tail->next = a;
+        } else {
+            tail->next = b;
+        }
         return dummy.next;
     }
 };`,
@@ -120,19 +143,29 @@ return newHead`,
 class Solution {
 public:
     Node* copyRandomList(Node* head) {
-        if (!head) return nullptr;
-        for (Node* p = head; p; p = p->next->next) {
-            Node* c = new Node(p->val);
-            c->next = p->next;
-            p->next = c;
+        if (head == nullptr) {
+            return nullptr;
         }
-        for (Node* p = head; p; p = p->next->next)
-            if (p->random) p->next->random = p->random->next;
+        // 1) Put each copy right after its original: A -> A' -> B -> B' -> ...
+        for (Node* p = head; p != nullptr; p = p->next->next) {
+            Node* copy = new Node(p->val);
+            copy->next = p->next;
+            p->next = copy;
+        }
+        // 2) The copy of p->random is the node right after p->random.
+        for (Node* p = head; p != nullptr; p = p->next->next) {
+            if (p->random != nullptr) {
+                p->next->random = p->random->next;
+            }
+        }
+        // 3) Unweave: restore the original list and link the copies together.
         Node* newHead = head->next;
-        for (Node* p = head; p; p = p->next) {
-            Node* c = p->next;
-            p->next = c->next;
-            if (c->next) c->next = c->next->next;
+        for (Node* p = head; p != nullptr; p = p->next) {
+            Node* copy = p->next;
+            p->next = copy->next;
+            if (copy->next != nullptr) {
+                copy->next = copy->next->next;
+            }
         }
         return newHead;
     }
@@ -165,14 +198,20 @@ class Solution {
 public:
     ListNode* reverseBetween(ListNode* head, int left, int right) {
         ListNode dummy(0, head);
-        ListNode* pre = &dummy;
-        for (int i = 1; i < left; i++) pre = pre->next;
-        ListNode* cur = pre->next;
+        // Walk "before" to the node just before position "left".
+        ListNode* before = &dummy;
+        for (int i = 1; i < left; i++) {
+            before = before->next;
+        }
+        // "current" ends up as the last node of the reversed part.
+        ListNode* current = before->next;
+        // Move the node after "current" to the front of the sublist,
+        // (right - left) times.
         for (int i = 0; i < right - left; i++) {
-            ListNode* nxt = cur->next;
-            cur->next = nxt->next;
-            nxt->next = pre->next;
-            pre->next = nxt;
+            ListNode* moving = current->next;
+            current->next = moving->next;
+            moving->next = before->next;
+            before->next = moving;
         }
         return dummy.next;
     }
@@ -201,23 +240,30 @@ class Solution {
 public:
     ListNode* reverseKGroup(ListNode* head, int k) {
         ListNode dummy(0, head);
-        ListNode* groupPrev = &dummy;
+        ListNode* groupPrev = &dummy; // the node just before the current group
         while (true) {
+            // Find the k-th node of this group. Stop if fewer than k nodes remain.
             ListNode* kth = groupPrev;
-            for (int i = 0; i < k && kth; i++) kth = kth->next;
-            if (!kth) break;
-            ListNode* groupNext = kth->next;
-            ListNode* prev = groupNext;
-            ListNode* cur = groupPrev->next;
-            while (cur != groupNext) {
-                ListNode* nxt = cur->next;
-                cur->next = prev;
-                prev = cur;
-                cur = nxt;
+            for (int i = 0; i < k && kth != nullptr; i++) {
+                kth = kth->next;
             }
-            ListNode* first = groupPrev->next;
+            if (kth == nullptr) {
+                break;
+            }
+            ListNode* groupNext = kth->next; // first node after the group
+            // Reverse the group. Its first node will point to groupNext.
+            ListNode* prev = groupNext;
+            ListNode* current = groupPrev->next;
+            while (current != groupNext) {
+                ListNode* nextNode = current->next;
+                current->next = prev;
+                prev = current;
+                current = nextNode;
+            }
+            // kth is now the head of the group, and the old first node is its tail.
+            ListNode* oldFirst = groupPrev->next;
             groupPrev->next = kth;
-            groupPrev = first;
+            groupPrev = oldFirst;
         }
         return dummy.next;
     }
@@ -242,15 +288,20 @@ class Solution {
 public:
     ListNode* removeNthFromEnd(ListNode* head, int n) {
         ListNode dummy(0, head);
-        ListNode *fast = &dummy, *slow = &dummy;
-        for (int i = 0; i <= n; i++) fast = fast->next;
-        while (fast) {
+        ListNode* fast = &dummy;
+        ListNode* slow = &dummy;
+        // Move fast n + 1 nodes ahead of slow.
+        for (int i = 0; i <= n; i++) {
+            fast = fast->next;
+        }
+        // When fast falls off the end, slow is just before the node to remove.
+        while (fast != nullptr) {
             fast = fast->next;
             slow = slow->next;
         }
-        ListNode* del = slow->next;
-        slow->next = del->next;
-        delete del;
+        ListNode* target = slow->next;
+        slow->next = target->next;
+        delete target;
         return dummy.next;
     }
 };`,
@@ -278,16 +329,21 @@ class Solution {
 public:
     ListNode* deleteDuplicates(ListNode* head) {
         ListNode dummy(0, head);
-        ListNode* prev = &dummy;
-        while (head) {
-            if (head->next && head->val == head->next->val) {
-                while (head->next && head->val == head->next->val)
-                    head = head->next;
-                prev->next = head->next;
+        ListNode* prev = &dummy; // the last node we are keeping
+        ListNode* current = head;
+        while (current != nullptr) {
+            bool isDuplicate = current->next != nullptr && current->val == current->next->val;
+            if (isDuplicate) {
+                // Skip past the whole run of this value.
+                while (current->next != nullptr && current->val == current->next->val) {
+                    current = current->next;
+                }
+                prev->next = current->next;
             } else {
+                // A unique value: keep it.
                 prev = prev->next;
             }
-            head = head->next;
+            current = current->next;
         }
         return dummy.next;
     }
@@ -313,15 +369,28 @@ return newHead`,
 class Solution {
 public:
     ListNode* rotateRight(ListNode* head, int k) {
-        if (!head) return head;
+        if (head == nullptr) {
+            return head;
+        }
+        // Find the length and the last node.
         int n = 1;
         ListNode* tail = head;
-        while (tail->next) { tail = tail->next; n++; }
-        k %= n;
-        if (k == 0) return head;
+        while (tail->next != nullptr) {
+            tail = tail->next;
+            n++;
+        }
+        // Rotating by n changes nothing.
+        k = k % n;
+        if (k == 0) {
+            return head;
+        }
+        // Close the list into a ring...
         tail->next = head;
+        // ...then cut it so the last k nodes come first.
         ListNode* newTail = head;
-        for (int i = 0; i < n - k - 1; i++) newTail = newTail->next;
+        for (int i = 0; i < n - k - 1; i++) {
+            newTail = newTail->next;
+        }
         ListNode* newHead = newTail->next;
         newTail->next = nullptr;
         return newHead;
@@ -348,14 +417,22 @@ return lessHead.next`,
 class Solution {
 public:
     ListNode* partition(ListNode* head, int x) {
-        ListNode lessHead(0), geHead(0);
-        ListNode *lt = &lessHead, *ge = &geHead;
-        for (; head; head = head->next) {
-            if (head->val < x) { lt->next = head; lt = head; }
-            else { ge->next = head; ge = head; }
+        // Build two lists: values < x, and values >= x. Both keep the original order.
+        ListNode lessHead(0);
+        ListNode greaterHead(0);
+        ListNode* less = &lessHead;
+        ListNode* greater = &greaterHead;
+        for (ListNode* node = head; node != nullptr; node = node->next) {
+            if (node->val < x) {
+                less->next = node;
+                less = node;
+            } else {
+                greater->next = node;
+                greater = node;
+            }
         }
-        ge->next = nullptr;
-        lt->next = geHead.next;
+        greater->next = nullptr;       // end of the result
+        less->next = greaterHead.next; // join the two lists
         return lessHead.next;
     }
 };`,
@@ -379,32 +456,40 @@ put(k, v):
     push (k, v) to front; map[k] = front`,
   cpp: R`
 class LRUCache {
-    int cap;
-    list<pair<int, int>> items; // front = most recently used
-    unordered_map<int, list<pair<int, int>>::iterator> pos;
+    int capacity;
+    // Front of the list = most recently used. Each item is (key, value).
+    list<pair<int, int>> items;
+    // key -> where its item is in the list
+    unordered_map<int, list<pair<int, int>>::iterator> position;
 public:
-    LRUCache(int capacity) : cap(capacity) {}
+    LRUCache(int capacity) : capacity(capacity) {}
 
     int get(int key) {
-        auto it = pos.find(key);
-        if (it == pos.end()) return -1;
+        auto it = position.find(key);
+        if (it == position.end()) {
+            return -1;
+        }
+        // Mark it as most recently used: move it to the front.
         items.splice(items.begin(), items, it->second);
         return it->second->second;
     }
 
     void put(int key, int value) {
-        auto it = pos.find(key);
-        if (it != pos.end()) {
+        auto it = position.find(key);
+        if (it != position.end()) {
+            // Existing key: update the value and move it to the front.
             it->second->second = value;
             items.splice(items.begin(), items, it->second);
             return;
         }
-        if ((int)items.size() == cap) {
-            pos.erase(items.back().first);
+        // Full: evict the least recently used item, at the back.
+        if ((int)items.size() == capacity) {
+            int oldKey = items.back().first;
+            position.erase(oldKey);
             items.pop_back();
         }
-        items.emplace_front(key, value);
-        pos[key] = items.begin();
+        items.push_front({key, value});
+        position[key] = items.begin();
     }
 };`,
   tc: 'O(1) average per operation', sc: 'O(capacity)',
@@ -424,8 +509,13 @@ depth(node):
 class Solution {
 public:
     int maxDepth(TreeNode* root) {
-        if (!root) return 0;
-        return 1 + max(maxDepth(root->left), maxDepth(root->right));
+        if (root == nullptr) {
+            return 0;
+        }
+        int leftDepth = maxDepth(root->left);
+        int rightDepth = maxDepth(root->right);
+        // This node, plus the deeper of its two subtrees.
+        return 1 + max(leftDepth, rightDepth);
     }
 };`,
   tc: 'O(n)', sc: 'O(h) recursion, where h is the tree height',
@@ -445,9 +535,18 @@ same(p, q):
 class Solution {
 public:
     bool isSameTree(TreeNode* p, TreeNode* q) {
-        if (!p || !q) return p == q;
-        return p->val == q->val && isSameTree(p->left, q->left) &&
-               isSameTree(p->right, q->right);
+        // Both empty: the same. Only one empty: different.
+        if (p == nullptr && q == nullptr) {
+            return true;
+        }
+        if (p == nullptr || q == nullptr) {
+            return false;
+        }
+        if (p->val != q->val) {
+            return false;
+        }
+        // Same value here, so both subtrees must match too.
+        return isSameTree(p->left, q->left) && isSameTree(p->right, q->right);
     }
 };`,
   tc: 'O(n)', sc: 'O(h)',
@@ -469,8 +568,14 @@ invert(node):
 class Solution {
 public:
     TreeNode* invertTree(TreeNode* root) {
-        if (!root) return nullptr;
-        swap(root->left, root->right);
+        if (root == nullptr) {
+            return nullptr;
+        }
+        // Swap the two children...
+        TreeNode* temp = root->left;
+        root->left = root->right;
+        root->right = temp;
+        // ...then mirror each subtree.
         invertTree(root->left);
         invertTree(root->right);
         return root;
@@ -492,14 +597,23 @@ mirror(a, b):
 return mirror(root.left, root.right)`,
   cpp: R`
 class Solution {
-    bool mirror(TreeNode* a, TreeNode* b) {
-        if (!a || !b) return a == b;
-        return a->val == b->val && mirror(a->left, b->right) &&
-               mirror(a->right, b->left);
+    // Are trees a and b mirror images of each other?
+    bool isMirror(TreeNode* a, TreeNode* b) {
+        if (a == nullptr && b == nullptr) {
+            return true;
+        }
+        if (a == nullptr || b == nullptr) {
+            return false;
+        }
+        // Values match, and the outer and inner children mirror each other.
+        return a->val == b->val && isMirror(a->left, b->right) && isMirror(a->right, b->left);
     }
 public:
     bool isSymmetric(TreeNode* root) {
-        return !root || mirror(root->left, root->right);
+        if (root == nullptr) {
+            return true;
+        }
+        return isMirror(root->left, root->right);
     }
 };`,
   tc: 'O(n)', sc: 'O(h)',
@@ -523,19 +637,29 @@ build(lo, hi):
 return build(0, n-1)`,
   cpp: R`
 class Solution {
-    unordered_map<int, int> idx;
-    int pre = 0;
+    unordered_map<int, int> inorderIndex; // value -> its position in inorder
+    int preIndex = 0;                     // next root to take from preorder
+
+    // Build the subtree made of the values inorder[lo..hi].
     TreeNode* build(vector<int>& preorder, int lo, int hi) {
-        if (lo > hi) return nullptr;
-        TreeNode* root = new TreeNode(preorder[pre++]);
-        int m = idx[root->val];
-        root->left = build(preorder, lo, m - 1);
-        root->right = build(preorder, m + 1, hi);
+        if (lo > hi) {
+            return nullptr;
+        }
+        // The next preorder value is the root of this subtree.
+        int rootValue = preorder[preIndex];
+        preIndex++;
+        TreeNode* root = new TreeNode(rootValue);
+        // Values left of the root in inorder form the left subtree.
+        int mid = inorderIndex[rootValue];
+        root->left = build(preorder, lo, mid - 1);
+        root->right = build(preorder, mid + 1, hi);
         return root;
     }
 public:
     TreeNode* buildTree(vector<int>& preorder, vector<int>& inorder) {
-        for (int i = 0; i < (int)inorder.size(); i++) idx[inorder[i]] = i;
+        for (int i = 0; i < (int)inorder.size(); i++) {
+            inorderIndex[inorder[i]] = i;
+        }
         return build(preorder, 0, (int)inorder.size() - 1);
     }
 };`,
@@ -559,20 +683,29 @@ build(lo, hi):
     return root`,
   cpp: R`
 class Solution {
-    unordered_map<int, int> idx;
-    int post;
+    unordered_map<int, int> inorderIndex; // value -> its position in inorder
+    int postIndex = 0; // next root, reading postorder from the end
+
+    // Build the subtree made of the values inorder[lo..hi].
     TreeNode* build(vector<int>& postorder, int lo, int hi) {
-        if (lo > hi) return nullptr;
-        TreeNode* root = new TreeNode(postorder[post--]);
-        int m = idx[root->val];
-        root->right = build(postorder, m + 1, hi);
-        root->left = build(postorder, lo, m - 1);
+        if (lo > hi) {
+            return nullptr;
+        }
+        int rootValue = postorder[postIndex];
+        postIndex--;
+        TreeNode* root = new TreeNode(rootValue);
+        int mid = inorderIndex[rootValue];
+        // Postorder read backwards is root, right, left: build the right side first.
+        root->right = build(postorder, mid + 1, hi);
+        root->left = build(postorder, lo, mid - 1);
         return root;
     }
 public:
     TreeNode* buildTree(vector<int>& inorder, vector<int>& postorder) {
-        for (int i = 0; i < (int)inorder.size(); i++) idx[inorder[i]] = i;
-        post = (int)postorder.size() - 1;
+        for (int i = 0; i < (int)inorder.size(); i++) {
+            inorderIndex[inorder[i]] = i;
+        }
+        postIndex = (int)postorder.size() - 1;
         return build(postorder, 0, (int)inorder.size() - 1);
     }
 };`,
@@ -598,15 +731,24 @@ return root`,
 class Solution {
 public:
     Node* connect(Node* root) {
-        Node* level = root;
-        while (level) {
+        Node* levelStart = root; // leftmost node of the current level
+        while (levelStart != nullptr) {
+            // Build the next level as a linked list behind a dummy head.
             Node dummy(0);
             Node* tail = &dummy;
-            for (Node* cur = level; cur; cur = cur->next) {
-                if (cur->left) { tail->next = cur->left; tail = tail->next; }
-                if (cur->right) { tail->next = cur->right; tail = tail->next; }
+            // Walk the current level using the next pointers we already set.
+            for (Node* node = levelStart; node != nullptr; node = node->next) {
+                if (node->left != nullptr) {
+                    tail->next = node->left;
+                    tail = tail->next;
+                }
+                if (node->right != nullptr) {
+                    tail->next = node->right;
+                    tail = tail->next;
+                }
             }
-            level = dummy.next;
+            // Move down to the level we just linked.
+            levelStart = dummy.next;
         }
         return root;
     }
@@ -636,13 +778,20 @@ while cur:
 class Solution {
 public:
     void flatten(TreeNode* root) {
-        for (TreeNode* cur = root; cur; cur = cur->right) {
-            if (!cur->left) continue;
-            TreeNode* p = cur->left;
-            while (p->right) p = p->right;
-            p->right = cur->right;
-            cur->right = cur->left;
-            cur->left = nullptr;
+        TreeNode* current = root;
+        while (current != nullptr) {
+            if (current->left != nullptr) {
+                // Find the rightmost node of the left subtree.
+                TreeNode* rightmost = current->left;
+                while (rightmost->right != nullptr) {
+                    rightmost = rightmost->right;
+                }
+                // Hang the right subtree after it, then move the left subtree to the right.
+                rightmost->right = current->right;
+                current->right = current->left;
+                current->left = nullptr;
+            }
+            current = current->right;
         }
     }
 };`,
@@ -664,10 +813,16 @@ has(node, t):
 class Solution {
 public:
     bool hasPathSum(TreeNode* root, int targetSum) {
-        if (!root) return false;
-        if (!root->left && !root->right) return root->val == targetSum;
-        int rest = targetSum - root->val;
-        return hasPathSum(root->left, rest) || hasPathSum(root->right, rest);
+        if (root == nullptr) {
+            return false;
+        }
+        // At a leaf, the path works if what is left equals the leaf's value.
+        if (root->left == nullptr && root->right == nullptr) {
+            return root->val == targetSum;
+        }
+        // Subtract this node's value and keep looking below.
+        int remaining = targetSum - root->val;
+        return hasPathSum(root->left, remaining) || hasPathSum(root->right, remaining);
     }
 };`,
   tc: 'O(n)', sc: 'O(h)',
@@ -687,14 +842,22 @@ dfs(node, cur):
     return dfs(node.left, cur) + dfs(node.right, cur)`,
   cpp: R`
 class Solution {
-    int dfs(TreeNode* node, int cur) {
-        if (!node) return 0;
-        cur = cur * 10 + node->val;
-        if (!node->left && !node->right) return cur;
-        return dfs(node->left, cur) + dfs(node->right, cur);
+    // "current" is the number spelled by the path above "node".
+    int dfs(TreeNode* node, int current) {
+        if (node == nullptr) {
+            return 0;
+        }
+        // Append this node's digit.
+        current = current * 10 + node->val;
+        if (node->left == nullptr && node->right == nullptr) {
+            return current; // a complete root-to-leaf number
+        }
+        return dfs(node->left, current) + dfs(node->right, current);
     }
 public:
-    int sumNumbers(TreeNode* root) { return dfs(root, 0); }
+    int sumNumbers(TreeNode* root) {
+        return dfs(root, 0);
+    }
 };`,
   tc: 'O(n)', sc: 'O(h)',
   test: R`assert(Solution().sumNumbers(T({4,9,0,5,1}))==1026 && Solution().sumNumbers(T({1,2,3}))==25);`,
@@ -715,13 +878,20 @@ gain(node):
 gain(root); return best`,
   cpp: R`
 class Solution {
-    int best = INT_MIN;
+    int best = INT_MIN; // best path sum found anywhere in the tree
+
+    // Best sum of a path that starts at "node" and goes down one side.
     int gain(TreeNode* node) {
-        if (!node) return 0;
-        int l = max(0, gain(node->left));
-        int r = max(0, gain(node->right));
-        best = max(best, node->val + l + r);
-        return node->val + max(l, r);
+        if (node == nullptr) {
+            return 0;
+        }
+        // Ignore a side if it would only make the sum smaller.
+        int leftGain = max(0, gain(node->left));
+        int rightGain = max(0, gain(node->right));
+        // The best path whose highest point is "node" can use both sides.
+        best = max(best, node->val + leftGain + rightGain);
+        // A parent can only continue down one side.
+        return node->val + max(leftGain, rightGain);
     }
 public:
     int maxPathSum(TreeNode* root) {
@@ -749,21 +919,31 @@ next():
 hasNext(): return stack not empty`,
   cpp: R`
 class BSTIterator {
-    stack<TreeNode*> st;
-    void pushLeft(TreeNode* n) {
-        for (; n; n = n->left) st.push(n);
+    // Path of left children leading down to the next smallest value.
+    stack<TreeNode*> path;
+
+    void pushLeft(TreeNode* node) {
+        while (node != nullptr) {
+            path.push(node);
+            node = node->left;
+        }
     }
 public:
-    BSTIterator(TreeNode* root) { pushLeft(root); }
+    BSTIterator(TreeNode* root) {
+        pushLeft(root);
+    }
 
     int next() {
-        TreeNode* node = st.top();
-        st.pop();
+        TreeNode* node = path.top();
+        path.pop();
+        // The values right after this one are in its right subtree.
         pushLeft(node->right);
         return node->val;
     }
 
-    bool hasNext() { return !st.empty(); }
+    bool hasNext() {
+        return !path.empty();
+    }
 };`,
   tc: 'O(1) amortized per call', sc: 'O(h)',
   test: R`BSTIterator it(T({7,3,15,N_,N_,9,20})); assert(it.next()==3 && it.next()==7 && it.hasNext() && it.next()==9 && it.hasNext() && it.next()==15 && it.hasNext() && it.next()==20 && !it.hasNext());`,
@@ -784,11 +964,23 @@ count(node):
 class Solution {
 public:
     int countNodes(TreeNode* root) {
-        if (!root) return 0;
-        int lh = 0, rh = 0;
-        for (TreeNode* p = root; p; p = p->left) lh++;
-        for (TreeNode* p = root; p; p = p->right) rh++;
-        if (lh == rh) return (1 << lh) - 1;
+        if (root == nullptr) {
+            return 0;
+        }
+        // Height down the far-left edge and down the far-right edge.
+        int leftHeight = 0;
+        for (TreeNode* node = root; node != nullptr; node = node->left) {
+            leftHeight++;
+        }
+        int rightHeight = 0;
+        for (TreeNode* node = root; node != nullptr; node = node->right) {
+            rightHeight++;
+        }
+        // Equal heights: the tree is perfect and has 2^h - 1 nodes.
+        if (leftHeight == rightHeight) {
+            return (1 << leftHeight) - 1;
+        }
+        // Otherwise count both sides. One of them is perfect, so it returns fast.
         return 1 + countNodes(root->left) + countNodes(root->right);
     }
 };`,
@@ -811,11 +1003,21 @@ lca(node):
 class Solution {
 public:
     TreeNode* lowestCommonAncestor(TreeNode* root, TreeNode* p, TreeNode* q) {
-        if (!root || root == p || root == q) return root;
-        TreeNode* l = lowestCommonAncestor(root->left, p, q);
-        TreeNode* r = lowestCommonAncestor(root->right, p, q);
-        if (l && r) return root;
-        return l ? l : r;
+        // Found p or q (or fell off the tree): report it upward.
+        if (root == nullptr || root == p || root == q) {
+            return root;
+        }
+        TreeNode* left = lowestCommonAncestor(root->left, p, q);
+        TreeNode* right = lowestCommonAncestor(root->right, p, q);
+        // p and q are on different sides, so this node is where their paths meet.
+        if (left != nullptr && right != nullptr) {
+            return root;
+        }
+        // Otherwise pass up whichever side found something.
+        if (left != nullptr) {
+            return left;
+        }
+        return right;
     }
 };`,
   tc: 'O(n)', sc: 'O(h)',

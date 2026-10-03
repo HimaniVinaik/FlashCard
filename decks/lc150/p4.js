@@ -23,21 +23,31 @@ return res`,
 class Solution {
 public:
     vector<int> rightSideView(TreeNode* root) {
-        vector<int> res;
-        if (!root) return res;
+        vector<int> result;
+        if (root == nullptr) {
+            return result;
+        }
         queue<TreeNode*> q;
         q.push(root);
         while (!q.empty()) {
-            int size = q.size();
-            for (int i = 0; i < size; i++) {
+            // Everything in the queue right now is one level.
+            int levelSize = q.size();
+            for (int i = 0; i < levelSize; i++) {
                 TreeNode* node = q.front();
                 q.pop();
-                if (i == size - 1) res.push_back(node->val);
-                if (node->left) q.push(node->left);
-                if (node->right) q.push(node->right);
+                // The last node of each level is the one you see from the right.
+                if (i == levelSize - 1) {
+                    result.push_back(node->val);
+                }
+                if (node->left != nullptr) {
+                    q.push(node->left);
+                }
+                if (node->right != nullptr) {
+                    q.push(node->right);
+                }
             }
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(w), where w is the widest level',
@@ -61,22 +71,27 @@ while queue:
 class Solution {
 public:
     vector<double> averageOfLevels(TreeNode* root) {
-        vector<double> res;
+        vector<double> result;
         queue<TreeNode*> q;
         q.push(root);
         while (!q.empty()) {
-            int size = q.size();
-            long long sum = 0;
-            for (int i = 0; i < size; i++) {
+            // Everything in the queue right now is one level.
+            int levelSize = q.size();
+            long long sum = 0; // 64-bit so large values can't overflow
+            for (int i = 0; i < levelSize; i++) {
                 TreeNode* node = q.front();
                 q.pop();
                 sum += node->val;
-                if (node->left) q.push(node->left);
-                if (node->right) q.push(node->right);
+                if (node->left != nullptr) {
+                    q.push(node->left);
+                }
+                if (node->right != nullptr) {
+                    q.push(node->right);
+                }
             }
-            res.push_back((double)sum / size);
+            result.push_back((double)sum / levelSize);
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(w)',
@@ -100,23 +115,30 @@ while queue:
 class Solution {
 public:
     vector<vector<int>> levelOrder(TreeNode* root) {
-        vector<vector<int>> res;
-        if (!root) return res;
+        vector<vector<int>> result;
+        if (root == nullptr) {
+            return result;
+        }
         queue<TreeNode*> q;
         q.push(root);
         while (!q.empty()) {
-            int size = q.size();
+            // Everything in the queue right now is one level.
+            int levelSize = q.size();
             vector<int> level;
-            for (int i = 0; i < size; i++) {
+            for (int i = 0; i < levelSize; i++) {
                 TreeNode* node = q.front();
                 q.pop();
                 level.push_back(node->val);
-                if (node->left) q.push(node->left);
-                if (node->right) q.push(node->right);
+                if (node->left != nullptr) {
+                    q.push(node->left);
+                }
+                if (node->right != nullptr) {
+                    q.push(node->right);
+                }
             }
-            res.push_back(level);
+            result.push_back(level);
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(w)',
@@ -141,25 +163,36 @@ while queue:
 class Solution {
 public:
     vector<vector<int>> zigzagLevelOrder(TreeNode* root) {
-        vector<vector<int>> res;
-        if (!root) return res;
+        vector<vector<int>> result;
+        if (root == nullptr) {
+            return result;
+        }
         queue<TreeNode*> q;
         q.push(root);
         bool leftToRight = true;
         while (!q.empty()) {
-            int size = q.size();
-            vector<int> level(size);
-            for (int i = 0; i < size; i++) {
+            int levelSize = q.size();
+            vector<int> level(levelSize);
+            for (int i = 0; i < levelSize; i++) {
                 TreeNode* node = q.front();
                 q.pop();
-                level[leftToRight ? i : size - 1 - i] = node->val;
-                if (node->left) q.push(node->left);
-                if (node->right) q.push(node->right);
+                // Fill the level from the front or from the back, alternating.
+                int position = i;
+                if (!leftToRight) {
+                    position = levelSize - 1 - i;
+                }
+                level[position] = node->val;
+                if (node->left != nullptr) {
+                    q.push(node->left);
+                }
+                if (node->right != nullptr) {
+                    q.push(node->right);
+                }
             }
-            res.push_back(level);
+            result.push_back(level);
             leftToRight = !leftToRight;
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(w)',
@@ -182,11 +215,17 @@ inorder(node):
   cpp: R`
 class Solution {
     int best = INT_MAX;
-    TreeNode* prev = nullptr;
+    TreeNode* prev = nullptr; // the previous node in sorted (inorder) order
+
     void inorder(TreeNode* node) {
-        if (!node) return;
+        if (node == nullptr) {
+            return;
+        }
         inorder(node->left);
-        if (prev) best = min(best, node->val - prev->val);
+        // Inorder visits values in sorted order, so compare with the previous one.
+        if (prev != nullptr) {
+            best = min(best, node->val - prev->val);
+        }
         prev = node;
         inorder(node->right);
     }
@@ -218,13 +257,22 @@ class Solution {
 public:
     int kthSmallest(TreeNode* root, int k) {
         stack<TreeNode*> st;
-        TreeNode* cur = root;
+        TreeNode* current = root;
         while (true) {
-            for (; cur; cur = cur->left) st.push(cur);
-            cur = st.top();
+            // Go as far left as possible (toward smaller values).
+            while (current != nullptr) {
+                st.push(current);
+                current = current->left;
+            }
+            // Visit the next smallest node.
+            current = st.top();
             st.pop();
-            if (--k == 0) return cur->val;
-            cur = cur->right;
+            k--;
+            if (k == 0) {
+                return current->val;
+            }
+            // Then continue with its right subtree.
+            current = current->right;
         }
     }
 };`,
@@ -245,14 +293,20 @@ valid(node, low, high):
 return valid(root, -inf, +inf)`,
   cpp: R`
 class Solution {
+    // Every value in this subtree must be strictly between low and high.
     bool valid(TreeNode* node, long long low, long long high) {
-        if (!node) return true;
-        if (node->val <= low || node->val >= high) return false;
-        return valid(node->left, low, node->val) &&
-               valid(node->right, node->val, high);
+        if (node == nullptr) {
+            return true;
+        }
+        if (node->val <= low || node->val >= high) {
+            return false;
+        }
+        // Going left lowers the upper bound. Going right raises the lower bound.
+        return valid(node->left, low, node->val) && valid(node->right, node->val, high);
     }
 public:
     bool isValidBST(TreeNode* root) {
+        // 64-bit bounds, so nodes holding INT_MIN or INT_MAX still work.
         return valid(root, LLONG_MIN, LLONG_MAX);
     }
 };`,
@@ -277,25 +331,30 @@ sink(r, c):
     sink its 4 neighbors`,
   cpp: R`
 class Solution {
-    void sink(vector<vector<char>>& g, int r, int c) {
-        if (r < 0 || c < 0 || r >= (int)g.size() || c >= (int)g[0].size() ||
-            g[r][c] != '1')
+    // Turn this cell, and all land connected to it, into water.
+    void sink(vector<vector<char>>& grid, int r, int c) {
+        bool outside = r < 0 || c < 0 || r >= (int)grid.size() || c >= (int)grid[0].size();
+        if (outside || grid[r][c] != '1') {
             return;
-        g[r][c] = '0';
-        sink(g, r + 1, c);
-        sink(g, r - 1, c);
-        sink(g, r, c + 1);
-        sink(g, r, c - 1);
+        }
+        grid[r][c] = '0';
+        sink(grid, r + 1, c);
+        sink(grid, r - 1, c);
+        sink(grid, r, c + 1);
+        sink(grid, r, c - 1);
     }
 public:
     int numIslands(vector<vector<char>>& grid) {
         int count = 0;
-        for (int r = 0; r < (int)grid.size(); r++)
-            for (int c = 0; c < (int)grid[0].size(); c++)
+        for (int r = 0; r < (int)grid.size(); r++) {
+            for (int c = 0; c < (int)grid[0].size(); c++) {
+                // Land we haven't sunk yet is a new island. Sink it so it isn't counted again.
                 if (grid[r][c] == '1') {
                     count++;
                     sink(grid, r, c);
                 }
+            }
+        }
         return count;
     }
 };`,
@@ -318,30 +377,41 @@ for each cell:
     else if '#': set 'O'`,
   cpp: R`
 class Solution {
-    void mark(vector<vector<char>>& b, int r, int c) {
-        if (r < 0 || c < 0 || r >= (int)b.size() || c >= (int)b[0].size() ||
-            b[r][c] != 'O')
+    // Mark this 'O', and every 'O' connected to it, as safe ('#').
+    void markSafe(vector<vector<char>>& board, int r, int c) {
+        bool outside = r < 0 || c < 0 || r >= (int)board.size() || c >= (int)board[0].size();
+        if (outside || board[r][c] != 'O') {
             return;
-        b[r][c] = '#';
-        mark(b, r + 1, c);
-        mark(b, r - 1, c);
-        mark(b, r, c + 1);
-        mark(b, r, c - 1);
+        }
+        board[r][c] = '#';
+        markSafe(board, r + 1, c);
+        markSafe(board, r - 1, c);
+        markSafe(board, r, c + 1);
+        markSafe(board, r, c - 1);
     }
 public:
     void solve(vector<vector<char>>& board) {
-        int m = board.size(), n = board[0].size();
+        int m = board.size();
+        int n = board[0].size();
+        // Any region of 'O' that touches the border survives.
         for (int r = 0; r < m; r++) {
-            mark(board, r, 0);
-            mark(board, r, n - 1);
+            markSafe(board, r, 0);
+            markSafe(board, r, n - 1);
         }
         for (int c = 0; c < n; c++) {
-            mark(board, 0, c);
-            mark(board, m - 1, c);
+            markSafe(board, 0, c);
+            markSafe(board, m - 1, c);
         }
-        for (auto& row : board)
-            for (char& x : row)
-                x = (x == '#') ? 'O' : 'X';
+        // Every 'O' still left is surrounded, so capture it. Restore the safe ones.
+        for (auto& row : board) {
+            for (char& cell : row) {
+                if (cell == '#') {
+                    cell = 'O';
+                } else {
+                    cell = 'X';
+                }
+            }
+        }
     }
 };`,
   tc: 'O(m · n)', sc: 'O(m · n) recursion in the worst case',
@@ -363,16 +433,24 @@ clone(node):
     return c`,
   cpp: R`
 class Solution {
-    unordered_map<Node*, Node*> copies;
+    unordered_map<Node*, Node*> copies; // original node -> its copy
 public:
     Node* cloneGraph(Node* node) {
-        if (!node) return nullptr;
+        if (node == nullptr) {
+            return nullptr;
+        }
+        // Already copied. This also stops us from looping around cycles.
         auto it = copies.find(node);
-        if (it != copies.end()) return it->second;
-        Node* c = new Node(node->val);
-        copies[node] = c;
-        for (Node* nb : node->neighbors) c->neighbors.push_back(cloneGraph(nb));
-        return c;
+        if (it != copies.end()) {
+            return it->second;
+        }
+        // Create and remember the copy BEFORE visiting the neighbors.
+        Node* copy = new Node(node->val);
+        copies[node] = copy;
+        for (Node* neighbor : node->neighbors) {
+            copy->neighbors.push_back(cloneGraph(neighbor));
+        }
+        return copy;
     }
 };`,
   tc: 'O(V + E)', sc: 'O(V)',
@@ -400,14 +478,26 @@ dfs(a, b, seen):
 answer each query with dfs, or -1 if a variable is unknown`,
   cpp: R`
 class Solution {
-    unordered_map<string, vector<pair<string, double>>> g;
-    double dfs(const string& a, const string& b, unordered_set<string>& seen) {
-        if (a == b) return 1.0;
-        seen.insert(a);
-        for (auto& [nb, w] : g[a]) {
-            if (seen.count(nb)) continue;
-            double r = dfs(nb, b, seen);
-            if (r > 0) return w * r;
+    // graph[a] = list of (b, value), meaning a / b = value
+    unordered_map<string, vector<pair<string, double>>> graph;
+
+    // Product of the edge values on a path from a to b, or -1 if there is no path.
+    double dfs(const string& a, const string& b, unordered_set<string>& visited) {
+        if (a == b) {
+            return 1.0;
+        }
+        visited.insert(a);
+        for (auto& edge : graph[a]) {
+            const string& neighbor = edge.first;
+            double ratio = edge.second;
+            if (visited.count(neighbor)) {
+                continue;
+            }
+            double rest = dfs(neighbor, b, visited);
+            if (rest > 0) {
+                // a / b = (a / neighbor) * (neighbor / b)
+                return ratio * rest;
+            }
         }
         return -1.0;
     }
@@ -415,22 +505,26 @@ public:
     vector<double> calcEquation(vector<vector<string>>& equations,
                                 vector<double>& values,
                                 vector<vector<string>>& queries) {
+        // Each equation a / b = v gives two edges: a -> b (v) and b -> a (1 / v).
         for (int i = 0; i < (int)equations.size(); i++) {
             const string& a = equations[i][0];
             const string& b = equations[i][1];
-            g[a].push_back({b, values[i]});
-            g[b].push_back({a, 1.0 / values[i]});
+            graph[a].push_back({b, values[i]});
+            graph[b].push_back({a, 1.0 / values[i]});
         }
-        vector<double> res;
-        for (auto& q : queries) {
-            if (!g.count(q[0]) || !g.count(q[1])) {
-                res.push_back(-1.0);
+        vector<double> answers;
+        for (auto& query : queries) {
+            const string& a = query[0];
+            const string& b = query[1];
+            // A variable we never saw can't be determined.
+            if (!graph.count(a) || !graph.count(b)) {
+                answers.push_back(-1.0);
                 continue;
             }
-            unordered_set<string> seen;
-            res.push_back(dfs(q[0], q[1], seen));
+            unordered_set<string> visited;
+            answers.push_back(dfs(a, b, visited));
         }
-        return res;
+        return answers;
     }
 };`,
   tc: 'O(Q · (V + E))', sc: 'O(V + E)',
@@ -455,23 +549,36 @@ return taken == numCourses`,
 class Solution {
 public:
     bool canFinish(int numCourses, vector<vector<int>>& prerequisites) {
-        vector<vector<int>> g(numCourses);
-        vector<int> indeg(numCourses, 0);
-        for (auto& p : prerequisites) {
-            g[p[1]].push_back(p[0]);
-            indeg[p[0]]++;
+        // Edge before -> course. indegree = prerequisites not taken yet.
+        vector<vector<int>> graph(numCourses);
+        vector<int> indegree(numCourses, 0);
+        for (auto& pre : prerequisites) {
+            int course = pre[0];
+            int before = pre[1];
+            graph[before].push_back(course);
+            indegree[course]++;
         }
-        queue<int> q;
-        for (int i = 0; i < numCourses; i++)
-            if (indeg[i] == 0) q.push(i);
+        // Start with the courses that need nothing.
+        queue<int> ready;
+        for (int c = 0; c < numCourses; c++) {
+            if (indegree[c] == 0) {
+                ready.push(c);
+            }
+        }
         int taken = 0;
-        while (!q.empty()) {
-            int c = q.front();
-            q.pop();
+        while (!ready.empty()) {
+            int course = ready.front();
+            ready.pop();
             taken++;
-            for (int nxt : g[c])
-                if (--indeg[nxt] == 0) q.push(nxt);
+            // Taking this course satisfies one prerequisite of each course after it.
+            for (int after : graph[course]) {
+                indegree[after]--;
+                if (indegree[after] == 0) {
+                    ready.push(after);
+                }
+            }
         }
+        // If some course never became ready, the prerequisites form a cycle.
         return taken == numCourses;
     }
 };`,
@@ -496,23 +603,38 @@ return len(order) == n ? order : []`,
 class Solution {
 public:
     vector<int> findOrder(int numCourses, vector<vector<int>>& prerequisites) {
-        vector<vector<int>> g(numCourses);
-        vector<int> indeg(numCourses, 0), order;
-        for (auto& p : prerequisites) {
-            g[p[1]].push_back(p[0]);
-            indeg[p[0]]++;
+        // Edge before -> course. indegree = prerequisites not taken yet.
+        vector<vector<int>> graph(numCourses);
+        vector<int> indegree(numCourses, 0);
+        for (auto& pre : prerequisites) {
+            int course = pre[0];
+            int before = pre[1];
+            graph[before].push_back(course);
+            indegree[course]++;
         }
-        queue<int> q;
-        for (int i = 0; i < numCourses; i++)
-            if (indeg[i] == 0) q.push(i);
-        while (!q.empty()) {
-            int c = q.front();
-            q.pop();
-            order.push_back(c);
-            for (int nxt : g[c])
-                if (--indeg[nxt] == 0) q.push(nxt);
+        // Start with the courses that need nothing.
+        queue<int> ready;
+        for (int c = 0; c < numCourses; c++) {
+            if (indegree[c] == 0) {
+                ready.push(c);
+            }
         }
-        if ((int)order.size() != numCourses) return {};
+        vector<int> order;
+        while (!ready.empty()) {
+            int course = ready.front();
+            ready.pop();
+            order.push_back(course);
+            for (int after : graph[course]) {
+                indegree[after]--;
+                if (indegree[after] == 0) {
+                    ready.push(after);
+                }
+            }
+        }
+        // Some course was never reachable: there is a cycle.
+        if ((int)order.size() != numCourses) {
+            return {};
+        }
         return order;
     }
 };`,
@@ -538,27 +660,41 @@ while queue:
 return -1`,
   cpp: R`
 class Solution {
+    // The board value at square s. Rows count from the bottom and alternate direction.
+    int cellValue(vector<vector<int>>& board, int s) {
+        int n = board.size();
+        int rowFromBottom = (s - 1) / n;
+        int col = (s - 1) % n;
+        if (rowFromBottom % 2 == 1) {
+            col = n - 1 - col; // odd rows run right to left
+        }
+        return board[n - 1 - rowFromBottom][col];
+    }
 public:
     int snakesAndLadders(vector<vector<int>>& board) {
-        int n = board.size(), target = n * n;
-        auto cell = [&](int s) {
-            int r = (s - 1) / n, c = (s - 1) % n;
-            if (r % 2 == 1) c = n - 1 - c;
-            return board[n - 1 - r][c];
-        };
-        vector<int> dist(target + 1, -1);
+        int n = board.size();
+        int target = n * n;
+        // rolls[s] = fewest rolls to reach square s (-1 = not reached yet)
+        vector<int> rolls(target + 1, -1);
         queue<int> q;
         q.push(1);
-        dist[1] = 0;
+        rolls[1] = 0;
         while (!q.empty()) {
-            int s = q.front();
+            int square = q.front();
             q.pop();
-            if (s == target) return dist[s];
-            for (int nxt = s + 1; nxt <= min(s + 6, target); nxt++) {
-                int dest = cell(nxt) == -1 ? nxt : cell(nxt);
-                if (dist[dest] == -1) {
-                    dist[dest] = dist[s] + 1;
-                    q.push(dest);
+            if (square == target) {
+                return rolls[square];
+            }
+            // Try every dice roll from 1 to 6.
+            for (int next = square + 1; next <= min(square + 6, target); next++) {
+                int destination = next;
+                int jump = cellValue(board, next);
+                if (jump != -1) {
+                    destination = jump; // follow the snake or ladder
+                }
+                if (rolls[destination] == -1) {
+                    rolls[destination] = rolls[square] + 1;
+                    q.push(destination);
                 }
             }
         }
@@ -587,25 +723,33 @@ return -1`,
 class Solution {
 public:
     int minMutation(string startGene, string endGene, vector<string>& bank) {
-        unordered_set<string> valid(bank.begin(), bank.end());
-        if (!valid.count(endGene)) return -1;
+        unordered_set<string> unvisited(bank.begin(), bank.end());
+        if (!unvisited.count(endGene)) {
+            return -1;
+        }
+        // BFS: each step is one mutation. Queue holds (gene, mutations so far).
         queue<pair<string, int>> q;
         q.push({startGene, 0});
-        valid.erase(startGene);
+        unvisited.erase(startGene);
+        const string letters = "ACGT";
         while (!q.empty()) {
-            auto [g, d] = q.front();
+            string gene = q.front().first;
+            int steps = q.front().second;
             q.pop();
-            if (g == endGene) return d;
-            for (int i = 0; i < (int)g.size(); i++) {
-                char orig = g[i];
-                for (char c : string("ACGT")) {
-                    g[i] = c;
-                    if (valid.count(g)) {
-                        valid.erase(g);
-                        q.push({g, d + 1});
+            if (gene == endGene) {
+                return steps;
+            }
+            // Try changing each position to each letter.
+            for (int i = 0; i < (int)gene.size(); i++) {
+                char original = gene[i];
+                for (char c : letters) {
+                    gene[i] = c;
+                    if (unvisited.count(gene)) {
+                        unvisited.erase(gene); // visit each gene only once
+                        q.push({gene, steps + 1});
                     }
                 }
-                g[i] = orig;
+                gene[i] = original;
             }
         }
         return -1;
@@ -636,27 +780,36 @@ class Solution {
 public:
     int ladderLength(string beginWord, string endWord, vector<string>& wordList) {
         unordered_set<string> dict(wordList.begin(), wordList.end());
-        if (!dict.count(endWord)) return 0;
+        if (!dict.count(endWord)) {
+            return 0;
+        }
         queue<string> q;
         q.push(beginWord);
         dict.erase(beginWord);
-        for (int steps = 1; !q.empty(); steps++) {
-            for (int sz = q.size(); sz > 0; sz--) {
-                string w = q.front();
+        int steps = 1; // number of words in the sequence so far
+        while (!q.empty()) {
+            // Handle one BFS level: every word reachable with "steps" words.
+            int levelSize = q.size();
+            for (int i = 0; i < levelSize; i++) {
+                string word = q.front();
                 q.pop();
-                if (w == endWord) return steps;
-                for (int i = 0; i < (int)w.size(); i++) {
-                    char orig = w[i];
+                if (word == endWord) {
+                    return steps;
+                }
+                // Try every one-letter change.
+                for (int pos = 0; pos < (int)word.size(); pos++) {
+                    char original = word[pos];
                     for (char c = 'a'; c <= 'z'; c++) {
-                        w[i] = c;
-                        if (dict.count(w)) {
-                            dict.erase(w);
-                            q.push(w);
+                        word[pos] = c;
+                        if (dict.count(word)) {
+                            dict.erase(word); // visit each word only once
+                            q.push(word);
                         }
                     }
-                    w[i] = orig;
+                    word[pos] = original;
                 }
             }
+            steps++;
         }
         return 0;
     }
@@ -682,41 +835,51 @@ startsWith(p): return walk(p) exists`,
   cpp: R`
 class Trie {
     struct Node {
-        int next[26];
-        bool end = false;
-        Node() { fill(next, next + 26, -1); }
-    };
-    vector<Node> t;
-    int walk(const string& s) {
-        int cur = 0;
-        for (char c : s) {
-            cur = t[cur].next[c - 'a'];
-            if (cur == -1) return -1;
+        int child[26];      // index of the child node for each letter, or -1
+        bool isEnd = false; // a word ends at this node
+        Node() {
+            fill(child, child + 26, -1);
         }
-        return cur;
+    };
+    vector<Node> nodes; // nodes[0] is the root
+
+    // Follow s from the root. Returns the final node, or -1 if a letter is missing.
+    int walk(const string& s) {
+        int current = 0;
+        for (char c : s) {
+            current = nodes[current].child[c - 'a'];
+            if (current == -1) {
+                return -1;
+            }
+        }
+        return current;
     }
 public:
-    Trie() : t(1) {}
+    Trie() : nodes(1) {}
 
     void insert(string word) {
-        int cur = 0;
+        int current = 0;
         for (char c : word) {
-            int i = c - 'a';
-            if (t[cur].next[i] == -1) {
-                t[cur].next[i] = t.size();
-                t.emplace_back();
+            int letter = c - 'a';
+            // Create the child node if it doesn't exist yet.
+            if (nodes[current].child[letter] == -1) {
+                int newIndex = nodes.size();
+                nodes.emplace_back();
+                nodes[current].child[letter] = newIndex;
             }
-            cur = t[cur].next[i];
+            current = nodes[current].child[letter];
         }
-        t[cur].end = true;
+        nodes[current].isEnd = true;
     }
 
     bool search(string word) {
-        int n = walk(word);
-        return n != -1 && t[n].end;
+        int node = walk(word);
+        return node != -1 && nodes[node].isEnd;
     }
 
-    bool startsWith(string prefix) { return walk(prefix) != -1; }
+    bool startsWith(string prefix) {
+        return walk(prefix) != -1;
+    }
 };`,
   tc: 'O(L) per operation, where L is the word length', sc: 'O(total characters inserted)',
   test: R`Trie t; t.insert("apple"); assert(t.search("apple") && !t.search("app") && t.startsWith("app")); t.insert("app"); assert(t.search("app") && !t.startsWith("b"));`,
@@ -739,39 +902,56 @@ dfs(node, i):
   cpp: R`
 class WordDictionary {
     struct Node {
-        int next[26];
-        bool end = false;
-        Node() { fill(next, next + 26, -1); }
+        int child[26];      // index of the child node for each letter, or -1
+        bool isEnd = false; // a word ends at this node
+        Node() {
+            fill(child, child + 26, -1);
+        }
     };
-    vector<Node> t;
-    bool dfs(const string& w, int i, int node) {
-        if (i == (int)w.size()) return t[node].end;
-        if (w[i] == '.') {
-            for (int c = 0; c < 26; c++)
-                if (t[node].next[c] != -1 && dfs(w, i + 1, t[node].next[c]))
+    vector<Node> nodes; // nodes[0] is the root
+
+    // Can word[i..] be matched starting from this node?
+    bool dfs(const string& word, int i, int node) {
+        if (i == (int)word.size()) {
+            return nodes[node].isEnd;
+        }
+        if (word[i] == '.') {
+            // Wildcard: try every child that exists.
+            for (int letter = 0; letter < 26; letter++) {
+                int child = nodes[node].child[letter];
+                if (child != -1 && dfs(word, i + 1, child)) {
                     return true;
+                }
+            }
             return false;
         }
-        int nxt = t[node].next[w[i] - 'a'];
-        return nxt != -1 && dfs(w, i + 1, nxt);
+        // A normal letter: follow its single edge.
+        int child = nodes[node].child[word[i] - 'a'];
+        if (child == -1) {
+            return false;
+        }
+        return dfs(word, i + 1, child);
     }
 public:
-    WordDictionary() : t(1) {}
+    WordDictionary() : nodes(1) {}
 
     void addWord(string word) {
-        int cur = 0;
+        int current = 0;
         for (char c : word) {
-            int i = c - 'a';
-            if (t[cur].next[i] == -1) {
-                t[cur].next[i] = t.size();
-                t.emplace_back();
+            int letter = c - 'a';
+            if (nodes[current].child[letter] == -1) {
+                int newIndex = nodes.size();
+                nodes.emplace_back();
+                nodes[current].child[letter] = newIndex;
             }
-            cur = t[cur].next[i];
+            current = nodes[current].child[letter];
         }
-        t[cur].end = true;
+        nodes[current].isEnd = true;
     }
 
-    bool search(string word) { return dfs(word, 0, 0); }
+    bool search(string word) {
+        return dfs(word, 0, 0);
+    }
 };`,
   tc: 'O(L) to add; up to O(26^dots · L) to search', sc: 'O(total characters)',
   test: R`WordDictionary d; d.addWord("bad"); d.addWord("dad"); d.addWord("mad"); assert(!d.search("pad") && d.search("bad") && d.search(".ad") && d.search("b..") && !d.search("b...") && !d.search("..."+string("")+"x"));`,
@@ -795,50 +975,65 @@ for every cell: dfs(r, c, root)`,
   cpp: R`
 class Solution {
     struct Node {
-        int next[26];
-        int word = -1; // index into words, or -1
-        Node() { fill(next, next + 26, -1); }
+        int child[26];      // index of the child node for each letter, or -1
+        int wordIndex = -1; // index into "words" if a word ends here
+        Node() {
+            fill(child, child + 26, -1);
+        }
     };
-    vector<Node> t;
-    vector<string> res;
-    void dfs(vector<vector<char>>& b, int r, int c, int node,
-             vector<string>& words) {
-        char ch = b[r][c];
-        if (ch == '#') return;
-        int nxt = t[node].next[ch - 'a'];
-        if (nxt == -1) return;
-        if (t[nxt].word != -1) {
-            res.push_back(words[t[nxt].word]);
-            t[nxt].word = -1; // report each word once
+    vector<Node> nodes; // the trie; nodes[0] is the root
+    vector<string> found;
+
+    void dfs(vector<vector<char>>& board, int r, int c, int node, vector<string>& words) {
+        char letter = board[r][c];
+        if (letter == '#') {
+            return; // this cell is already used in the current path
         }
-        b[r][c] = '#';
-        const int dr[] = {1, -1, 0, 0}, dc[] = {0, 0, 1, -1};
+        int next = nodes[node].child[letter - 'a'];
+        if (next == -1) {
+            return; // no word continues with this letter
+        }
+        if (nodes[next].wordIndex != -1) {
+            found.push_back(words[nodes[next].wordIndex]);
+            nodes[next].wordIndex = -1; // report each word only once
+        }
+        board[r][c] = '#'; // mark the cell as used
+        const int dr[] = {1, -1, 0, 0};
+        const int dc[] = {0, 0, 1, -1};
         for (int d = 0; d < 4; d++) {
-            int nr = r + dr[d], nc = c + dc[d];
-            if (nr >= 0 && nr < (int)b.size() && nc >= 0 && nc < (int)b[0].size())
-                dfs(b, nr, nc, nxt, words);
+            int nr = r + dr[d];
+            int nc = c + dc[d];
+            bool inside = nr >= 0 && nr < (int)board.size() && nc >= 0 && nc < (int)board[0].size();
+            if (inside) {
+                dfs(board, nr, nc, next, words);
+            }
         }
-        b[r][c] = ch;
+        board[r][c] = letter; // unmark the cell
     }
 public:
     vector<string> findWords(vector<vector<char>>& board, vector<string>& words) {
-        t.assign(1, Node());
+        // Put all the words in a trie.
+        nodes.assign(1, Node());
         for (int w = 0; w < (int)words.size(); w++) {
-            int cur = 0;
+            int current = 0;
             for (char ch : words[w]) {
-                int i = ch - 'a';
-                if (t[cur].next[i] == -1) {
-                    t[cur].next[i] = t.size();
-                    t.emplace_back();
+                int letter = ch - 'a';
+                if (nodes[current].child[letter] == -1) {
+                    int newIndex = nodes.size();
+                    nodes.emplace_back();
+                    nodes[current].child[letter] = newIndex;
                 }
-                cur = t[cur].next[i];
+                current = nodes[current].child[letter];
             }
-            t[cur].word = w;
+            nodes[current].wordIndex = w;
         }
-        for (int r = 0; r < (int)board.size(); r++)
-            for (int c = 0; c < (int)board[0].size(); c++)
+        // Start a search from every cell, walking the trie alongside the board.
+        for (int r = 0; r < (int)board.size(); r++) {
+            for (int c = 0; c < (int)board[0].size(); c++) {
                 dfs(board, r, c, 0, words);
-        return res;
+            }
+        }
+        return found;
     }
 };`,
   tc: 'O(m · n · 4 · 3^(L−1)) in the worst case, where L is the longest word', sc: 'O(total characters in words)',
@@ -861,24 +1056,28 @@ bt(0, "")`,
 class Solution {
     const vector<string> keys = {"", "", "abc", "def", "ghi",
                                  "jkl", "mno", "pqrs", "tuv", "wxyz"};
-    vector<string> res;
-    string cur;
-    void bt(const string& digits, int i) {
+    vector<string> result;
+    string current;
+
+    void backtrack(const string& digits, int i) {
         if (i == (int)digits.size()) {
-            res.push_back(cur);
+            result.push_back(current); // one complete combination
             return;
         }
-        for (char ch : keys[digits[i] - '0']) {
-            cur.push_back(ch);
-            bt(digits, i + 1);
-            cur.pop_back();
+        // Try each letter for this digit.
+        for (char letter : keys[digits[i] - '0']) {
+            current.push_back(letter);
+            backtrack(digits, i + 1);
+            current.pop_back(); // undo, then try the next letter
         }
     }
 public:
     vector<string> letterCombinations(string digits) {
-        if (digits.empty()) return {};
-        bt(digits, 0);
-        return res;
+        if (digits.empty()) {
+            return {};
+        }
+        backtrack(digits, 0);
+        return result;
     }
 };`,
   tc: 'O(4^n · n)', sc: 'O(n) recursion, plus the output',
@@ -898,23 +1097,26 @@ bt(start):
 bt(1)`,
   cpp: R`
 class Solution {
-    vector<vector<int>> res;
-    vector<int> cur;
-    void bt(int start, int n, int k) {
-        if ((int)cur.size() == k) {
-            res.push_back(cur);
+    vector<vector<int>> result;
+    vector<int> current;
+
+    void backtrack(int start, int n, int k) {
+        if ((int)current.size() == k) {
+            result.push_back(current);
             return;
         }
-        for (int i = start; i <= n - (k - (int)cur.size()) + 1; i++) {
-            cur.push_back(i);
-            bt(i + 1, n, k);
-            cur.pop_back();
+        // We still need this many numbers, so stop early enough to fit them.
+        int slotsLeft = k - (int)current.size();
+        for (int i = start; i <= n - slotsLeft + 1; i++) {
+            current.push_back(i);
+            backtrack(i + 1, n, k); // the next number must be bigger
+            current.pop_back();
         }
     }
 public:
     vector<vector<int>> combine(int n, int k) {
-        bt(1, n, k);
-        return res;
+        backtrack(1, n, k);
+        return result;
     }
 };`,
   tc: 'O(C(n, k) · k)', sc: 'O(k) recursion, plus the output',
@@ -936,28 +1138,32 @@ bt():
             cur.pop(); used[i] = false`,
   cpp: R`
 class Solution {
-    vector<vector<int>> res;
-    vector<int> cur;
+    vector<vector<int>> result;
+    vector<int> current;
     vector<bool> used;
-    void bt(vector<int>& nums) {
-        if (cur.size() == nums.size()) {
-            res.push_back(cur);
+
+    void backtrack(vector<int>& nums) {
+        if (current.size() == nums.size()) {
+            result.push_back(current); // one complete permutation
             return;
         }
         for (int i = 0; i < (int)nums.size(); i++) {
-            if (used[i]) continue;
+            if (used[i]) {
+                continue;
+            }
+            // Choose nums[i], explore, then undo the choice.
             used[i] = true;
-            cur.push_back(nums[i]);
-            bt(nums);
-            cur.pop_back();
+            current.push_back(nums[i]);
+            backtrack(nums);
+            current.pop_back();
             used[i] = false;
         }
     }
 public:
     vector<vector<int>> permute(vector<int>& nums) {
         used.assign(nums.size(), false);
-        bt(nums);
-        return res;
+        backtrack(nums);
+        return result;
     }
 };`,
   tc: 'O(n · n!)', sc: 'O(n) recursion, plus the output',
@@ -979,24 +1185,30 @@ bt(start, remain):
 bt(0, target)`,
   cpp: R`
 class Solution {
-    vector<vector<int>> res;
-    vector<int> cur;
-    void bt(vector<int>& c, int start, int remain) {
-        if (remain == 0) {
-            res.push_back(cur);
+    vector<vector<int>> result;
+    vector<int> current;
+
+    void backtrack(vector<int>& candidates, int start, int remaining) {
+        if (remaining == 0) {
+            result.push_back(current);
             return;
         }
-        for (int i = start; i < (int)c.size() && c[i] <= remain; i++) {
-            cur.push_back(c[i]);
-            bt(c, i, remain - c[i]);
-            cur.pop_back();
+        for (int i = start; i < (int)candidates.size(); i++) {
+            // Sorted, so once a candidate is too big, every later one is too.
+            if (candidates[i] > remaining) {
+                break;
+            }
+            current.push_back(candidates[i]);
+            // Pass i (not i + 1): the same number may be used again.
+            backtrack(candidates, i, remaining - candidates[i]);
+            current.pop_back();
         }
     }
 public:
     vector<vector<int>> combinationSum(vector<int>& candidates, int target) {
         sort(candidates.begin(), candidates.end());
-        bt(candidates, 0, target);
-        return res;
+        backtrack(candidates, 0, target);
+        return result;
     }
 };`,
   tc: 'Exponential: O(n^(T/m)), where T is the target and m the smallest candidate', sc: 'O(T/m) recursion',
@@ -1019,22 +1231,30 @@ solve(cols, d1, d2):
     return count`,
   cpp: R`
 class Solution {
-    int all;
-    int solve(int cols, int d1, int d2) {
-        if (cols == all) return 1;
+    int full; // n bits set: a queen in every column
+
+    // cols, diag1, diag2 = squares in the current row attacked by earlier queens.
+    int place(int cols, int diag1, int diag2) {
+        if (cols == full) {
+            return 1; // a queen in every row: one solution
+        }
         int count = 0;
-        int free = ~(cols | d1 | d2) & all;
-        while (free) {
-            int bit = free & -free;
-            free -= bit;
-            count += solve(cols | bit, ((d1 | bit) << 1) & all, (d2 | bit) >> 1);
+        int freeSquares = ~(cols | diag1 | diag2) & full;
+        while (freeSquares != 0) {
+            // Take the lowest free square.
+            int bit = freeSquares & -freeSquares;
+            freeSquares -= bit;
+            // Diagonal attacks move one column over for each row down.
+            int nextDiag1 = ((diag1 | bit) << 1) & full;
+            int nextDiag2 = (diag2 | bit) >> 1;
+            count += place(cols | bit, nextDiag1, nextDiag2);
         }
         return count;
     }
 public:
     int totalNQueens(int n) {
-        all = (1 << n) - 1;
-        return solve(0, 0, 0);
+        full = (1 << n) - 1;
+        return place(0, 0, 0);
     }
 };`,
   tc: 'O(n!)', sc: 'O(n) recursion',
@@ -1053,28 +1273,31 @@ bt(cur, open, close):
     if close < open: bt(cur + ")", open, close+1)`,
   cpp: R`
 class Solution {
-    vector<string> res;
-    void bt(string& cur, int open, int close, int n) {
-        if ((int)cur.size() == 2 * n) {
-            res.push_back(cur);
+    vector<string> result;
+
+    void backtrack(string& current, int open, int close, int n) {
+        if ((int)current.size() == 2 * n) {
+            result.push_back(current);
             return;
         }
+        // We can open a new pair while we still have some left.
         if (open < n) {
-            cur.push_back('(');
-            bt(cur, open + 1, close, n);
-            cur.pop_back();
+            current.push_back('(');
+            backtrack(current, open + 1, close, n);
+            current.pop_back();
         }
+        // We can close only if there is an unmatched '('.
         if (close < open) {
-            cur.push_back(')');
-            bt(cur, open, close + 1, n);
-            cur.pop_back();
+            current.push_back(')');
+            backtrack(current, open, close + 1, n);
+            current.pop_back();
         }
     }
 public:
     vector<string> generateParenthesis(int n) {
-        string cur;
-        bt(cur, 0, 0, n);
-        return res;
+        string current;
+        backtrack(current, 0, 0, n);
+        return result;
     }
 };`,
   tc: 'O(4^n / √n), the Catalan number of results times their length', sc: 'O(n) recursion',
@@ -1097,23 +1320,34 @@ dfs(r, c, i):
 return any dfs(r, c, 0) over all cells`,
   cpp: R`
 class Solution {
-    bool dfs(vector<vector<char>>& b, const string& w, int r, int c, int i) {
-        if (i == (int)w.size()) return true;
-        if (r < 0 || c < 0 || r >= (int)b.size() || c >= (int)b[0].size() ||
-            b[r][c] != w[i])
+    // Can word[i..] be spelled starting at cell (r, c)?
+    bool dfs(vector<vector<char>>& board, const string& word, int r, int c, int i) {
+        if (i == (int)word.size()) {
+            return true; // matched every letter
+        }
+        bool outside = r < 0 || c < 0 || r >= (int)board.size() || c >= (int)board[0].size();
+        if (outside || board[r][c] != word[i]) {
             return false;
-        char tmp = b[r][c];
-        b[r][c] = '#';
-        bool found = dfs(b, w, r + 1, c, i + 1) || dfs(b, w, r - 1, c, i + 1) ||
-                     dfs(b, w, r, c + 1, i + 1) || dfs(b, w, r, c - 1, i + 1);
-        b[r][c] = tmp;
+        }
+        char saved = board[r][c];
+        board[r][c] = '#'; // don't reuse this cell in the same path
+        bool found = dfs(board, word, r + 1, c, i + 1)
+                  || dfs(board, word, r - 1, c, i + 1)
+                  || dfs(board, word, r, c + 1, i + 1)
+                  || dfs(board, word, r, c - 1, i + 1);
+        board[r][c] = saved; // undo
         return found;
     }
 public:
     bool exist(vector<vector<char>>& board, string word) {
-        for (int r = 0; r < (int)board.size(); r++)
-            for (int c = 0; c < (int)board[0].size(); c++)
-                if (dfs(board, word, r, c, 0)) return true;
+        // Try every cell as the starting point.
+        for (int r = 0; r < (int)board.size(); r++) {
+            for (int c = 0; c < (int)board[0].size(); c++) {
+                if (dfs(board, word, r, c, 0)) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 };`,

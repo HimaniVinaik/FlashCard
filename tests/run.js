@@ -12,6 +12,41 @@ for (const p of ctx.window.LC150.parts) {
 let probs = ctx.window.LC150.problems;
 const only = process.argv.slice(2).map(Number);
 if (only.length) probs = probs.filter((p) => only.includes(p.n));
+// Readability rules for the solutions shown on the cards:
+// - no ++/-- inside an index or expression (only as a statement of its own, or in a for header)
+// - if/else/for/while bodies always in braces on their own lines
+// - one statement per line
+function styleIssues(code) {
+  const issues = [];
+  code.split('\n').forEach((raw, idx) => {
+    let t = raw.replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/'(?:\\.|[^'\\])*'/g, "''");
+    t = t.replace(/\/\/.*$/, '').trim();
+    if (!t) return;
+    const where = `line ${idx}: ${raw.trim()}`;
+    let rest = t;
+    if (/^for\s*\(/.test(t)) {
+      let depth = 0, end = -1;
+      for (let i = t.indexOf('('); i < t.length; i++) {
+        if (t[i] === '(') depth++;
+        if (t[i] === ')') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      rest = t.slice(end + 1);
+    }
+    if (/^(\}\s*)?(else\b|if\b|for\b|while\b|switch\b|do\b)/.test(t) && !t.endsWith('{')) issues.push('control statement without a braced block: ' + where);
+    if (/(\+\+|--)/.test(rest)) {
+      const ok = /^[^=;?]*[^\s;](\+\+|--);$/.test(rest) && (rest.match(/\+\+|--/g) || []).length === 1;
+      if (!ok) issues.push('++/-- inside an expression: ' + where);
+    }
+    if ((rest.match(/;/g) || []).length > 1) issues.push('more than one statement on a line: ' + where);
+    if (/\)\s*(const\s*)?\{[^}]*;/.test(rest)) issues.push('body on the same line as its header: ' + where);
+  });
+  return issues;
+}
+for (const p of probs) {
+  const issues = styleIssues(p.cpp);
+  if (issues.length) console.log(`STYLE #${p.n} ${p.t}\n  ` + issues.join('\n  '));
+}
+const styleBad = probs.filter((p) => styleIssues(p.cpp).length).length;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lc150-'));
 const prelude = fs.readFileSync(path.join(__dirname, 'prelude.h'), 'utf8');
 const jobs = probs.map((p) => () => new Promise((resolve) => {
@@ -54,5 +89,6 @@ const jobs = probs.map((p) => () => new Promise((resolve) => {
     if (p[f] === undefined || p[f] === '') console.log(`MISSING #${p.n} field ${f}`);
   console.log(`${results.length - bad.filter((b) => b.p.n).length}/${results.length} passed`);
   fs.rmSync(tmp, { recursive: true, force: true });
-  process.exit(bad.length ? 1 : 0);
+  console.log(`style: ${probs.length - styleBad}/${probs.length} solutions pass the readability rules`);
+  process.exit(bad.length || styleBad ? 1 : 0);
 })();

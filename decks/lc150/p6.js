@@ -19,13 +19,19 @@ return x == rev or x == rev / 10`,
 class Solution {
 public:
     bool isPalindrome(int x) {
-        if (x < 0 || (x % 10 == 0 && x != 0)) return false;
-        int rev = 0;
-        while (x > rev) {
-            rev = rev * 10 + x % 10;
+        // Negative numbers, and numbers ending in 0 (other than 0), can't be palindromes.
+        if (x < 0 || (x % 10 == 0 && x != 0)) {
+            return false;
+        }
+        // Move digits from the end of x onto reversedHalf until we reach the middle.
+        int reversedHalf = 0;
+        while (x > reversedHalf) {
+            reversedHalf = reversedHalf * 10 + x % 10;
             x /= 10;
         }
-        return x == rev || x == rev / 10;
+        // Even digit count: the halves are equal.
+        // Odd digit count: drop the middle digit with / 10.
+        return x == reversedHalf || x == reversedHalf / 10;
     }
 };`,
   tc: 'O(log₁₀ x)', sc: 'O(1)',
@@ -48,11 +54,12 @@ public:
     vector<int> plusOne(vector<int>& digits) {
         for (int i = (int)digits.size() - 1; i >= 0; i--) {
             if (digits[i] < 9) {
-                digits[i]++;
+                digits[i] += 1; // no carry needed: done
                 return digits;
             }
-            digits[i] = 0;
+            digits[i] = 0; // 9 + 1 = 10: write 0 and carry 1 to the left
         }
+        // Every digit was 9, e.g. 999 + 1 = 1000.
         digits.insert(digits.begin(), 1);
         return digits;
     }
@@ -76,6 +83,7 @@ return count`,
 class Solution {
 public:
     int trailingZeroes(int n) {
+        // Count the factors of 5 in n!: n/5 + n/25 + n/125 + ...
         int count = 0;
         while (n > 0) {
             n /= 5;
@@ -104,11 +112,17 @@ return lo`,
 class Solution {
 public:
     int mySqrt(int x) {
-        long long lo = 0, hi = x;
+        // Find the largest m with m * m <= x.
+        long long lo = 0;
+        long long hi = x;
         while (lo < hi) {
+            // Round mid up, so "lo = mid" always makes progress.
             long long mid = lo + (hi - lo + 1) / 2;
-            if (mid * mid <= x) lo = mid;
-            else hi = mid - 1;
+            if (mid * mid <= x) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
         return (int)lo;
     }
@@ -135,18 +149,22 @@ return res`,
 class Solution {
 public:
     double myPow(double x, int n) {
-        long long N = n;
-        if (N < 0) {
+        // Use 64 bits: negating INT_MIN doesn't fit in an int.
+        long long power = n;
+        if (power < 0) {
             x = 1 / x;
-            N = -N;
+            power = -power;
         }
-        double res = 1.0;
-        while (N > 0) {
-            if (N & 1) res *= x;
+        double result = 1.0;
+        // Repeated squaring: x, x^2, x^4, ... used for each 1-bit of the power.
+        while (power > 0) {
+            if (power & 1) {
+                result *= x;
+            }
             x *= x;
-            N >>= 1;
+            power >>= 1;
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(log |n|)', sc: 'O(1)',
@@ -172,20 +190,27 @@ return best`,
 class Solution {
 public:
     int maxPoints(vector<vector<int>>& points) {
-        int n = points.size(), best = 1;
+        int n = points.size();
+        int best = 1;
         for (int i = 0; i < n; i++) {
-            map<pair<int, int>, int> cnt;
+            // Group the other points by the slope of the line from point i.
+            map<pair<int, int>, int> slopeCount;
             for (int j = i + 1; j < n; j++) {
                 int dx = points[j][0] - points[i][0];
                 int dy = points[j][1] - points[i][1];
-                int g = gcd(dx, dy); // never 0: the points are unique
+                // Reduce the slope to lowest terms (exact, no floating point).
+                // g is never 0 because the points are unique.
+                int g = gcd(dx, dy);
                 dx /= g;
                 dy /= g;
+                // Use one sign convention, so (1, 2) and (-1, -2) count as the same slope.
                 if (dx < 0 || (dx == 0 && dy < 0)) {
                     dx = -dx;
                     dy = -dy;
                 }
-                best = max(best, ++cnt[{dx, dy}] + 1);
+                slopeCount[{dx, dy}]++;
+                // Points on this line = the ones counted, plus point i itself.
+                best = max(best, slopeCount[{dx, dy}] + 1);
             }
         }
         return best;
@@ -209,13 +234,15 @@ return b`,
 class Solution {
 public:
     int climbStairs(int n) {
-        int a = 1, b = 1;
+        // ways(n) = ways(n - 1) + ways(n - 2). We only need the last two values.
+        int twoBack = 1; // ways(0)
+        int oneBack = 1; // ways(1)
         for (int i = 2; i <= n; i++) {
-            int c = a + b;
-            a = b;
-            b = c;
+            int current = oneBack + twoBack;
+            twoBack = oneBack;
+            oneBack = current;
         }
-        return b;
+        return oneBack;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -237,13 +264,15 @@ return prev1`,
 class Solution {
 public:
     int rob(vector<int>& nums) {
-        int prev2 = 0, prev1 = 0;
-        for (int x : nums) {
-            int cur = max(prev1, prev2 + x);
-            prev2 = prev1;
-            prev1 = cur;
+        int twoBack = 0; // best total up to two houses ago
+        int oneBack = 0; // best total up to the previous house
+        for (int money : nums) {
+            // Skip this house, or rob it on top of the total from two houses back.
+            int current = max(oneBack, twoBack + money);
+            twoBack = oneBack;
+            oneBack = current;
         }
-        return prev1;
+        return oneBack;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -267,20 +296,28 @@ class Solution {
 public:
     bool wordBreak(string s, vector<string>& wordDict) {
         unordered_set<string> dict(wordDict.begin(), wordDict.end());
-        set<int> lens;
-        for (auto& w : wordDict) lens.insert(w.size());
+        // Only word lengths that exist in the dictionary need checking.
+        set<int> lengths;
+        for (const string& w : wordDict) {
+            lengths.insert(w.size());
+        }
         int n = s.size();
-        vector<bool> dp(n + 1, false);
-        dp[0] = true;
-        for (int i = 1; i <= n; i++)
-            for (int L : lens) {
-                if (L > i) break;
-                if (dp[i - L] && dict.count(s.substr(i - L, L))) {
-                    dp[i] = true;
+        // canSplit[i] = can the first i characters be split into words?
+        vector<bool> canSplit(n + 1, false);
+        canSplit[0] = true; // the empty prefix
+        for (int i = 1; i <= n; i++) {
+            for (int len : lengths) {
+                if (len > i) {
+                    break;
+                }
+                // The part before the last word splits, and the last word is in the dictionary.
+                if (canSplit[i - len] && dict.count(s.substr(i - len, len))) {
+                    canSplit[i] = true;
                     break;
                 }
             }
-        return dp[n];
+        }
+        return canSplit[n];
     }
 };`,
   tc: 'O(n · D · L), with D distinct word lengths of size up to L', sc: 'O(n + total dictionary size)',
@@ -302,12 +339,22 @@ return dp[amount] > amount ? -1 : dp[amount]`,
 class Solution {
 public:
     int coinChange(vector<int>& coins, int amount) {
-        vector<int> dp(amount + 1, amount + 1);
-        dp[0] = 0;
-        for (int a = 1; a <= amount; a++)
-            for (int c : coins)
-                if (c <= a) dp[a] = min(dp[a], dp[a - c] + 1);
-        return dp[amount] > amount ? -1 : dp[amount];
+        // fewest[a] = fewest coins that make amount a.
+        // amount + 1 is bigger than any real answer, so it means "impossible".
+        vector<int> fewest(amount + 1, amount + 1);
+        fewest[0] = 0;
+        for (int a = 1; a <= amount; a++) {
+            for (int coin : coins) {
+                // Use this coin last: 1 coin + the best way to make the rest.
+                if (coin <= a) {
+                    fewest[a] = min(fewest[a], fewest[a - coin] + 1);
+                }
+            }
+        }
+        if (fewest[amount] > amount) {
+            return -1;
+        }
+        return fewest[amount];
     }
 };`,
   tc: 'O(amount · number of coins)', sc: 'O(amount)',
@@ -330,11 +377,17 @@ return len(tails)`,
 class Solution {
 public:
     int lengthOfLIS(vector<int>& nums) {
+        // tails[L] = smallest possible last value of an increasing
+        // subsequence of length L + 1. tails is always sorted.
         vector<int> tails;
         for (int x : nums) {
+            // Find the first tail that is >= x.
             auto it = lower_bound(tails.begin(), tails.end(), x);
-            if (it == tails.end()) tails.push_back(x);
-            else *it = x;
+            if (it == tails.end()) {
+                tails.push_back(x); // x extends the longest subsequence
+            } else {
+                *it = x; // x gives a smaller tail for that length
+            }
         }
         return tails.size();
     }
@@ -358,11 +411,15 @@ return dp[0]`,
 class Solution {
 public:
     int minimumTotal(vector<vector<int>>& triangle) {
-        vector<int> dp = triangle.back();
-        for (int r = (int)triangle.size() - 2; r >= 0; r--)
-            for (int i = 0; i <= r; i++)
-                dp[i] = triangle[r][i] + min(dp[i], dp[i + 1]);
-        return dp[0];
+        // Start from the bottom row and work upward.
+        vector<int> best = triangle.back();
+        for (int row = (int)triangle.size() - 2; row >= 0; row--) {
+            for (int i = 0; i <= row; i++) {
+                // Best path from (row, i) = its value + the better of the two cells below.
+                best[i] = triangle[row][i] + min(best[i], best[i + 1]);
+            }
+        }
+        return best[0];
     }
 };`,
   tc: 'O(n²)', sc: 'O(n)',
@@ -386,16 +443,22 @@ return dp[n-1]`,
 class Solution {
 public:
     int minPathSum(vector<vector<int>>& grid) {
-        int m = grid.size(), n = grid[0].size();
-        vector<int> dp(n, INT_MAX);
-        dp[0] = 0;
-        for (int r = 0; r < m; r++)
+        int m = grid.size();
+        int n = grid[0].size();
+        // best[c] = smallest sum to reach column c of the current row.
+        vector<int> best(n, INT_MAX);
+        best[0] = 0;
+        for (int r = 0; r < m; r++) {
             for (int c = 0; c < n; c++) {
-                int best = dp[c];
-                if (c > 0) best = min(best, dp[c - 1]);
-                dp[c] = grid[r][c] + best;
+                int fromAbove = best[c]; // still holds the row above
+                int fromLeft = INT_MAX;
+                if (c > 0) {
+                    fromLeft = best[c - 1];
+                }
+                best[c] = grid[r][c] + min(fromAbove, fromLeft);
             }
-        return dp[n - 1];
+        }
+        return best[n - 1];
     }
 };`,
   tc: 'O(m · n)', sc: 'O(n)',
@@ -419,14 +482,20 @@ class Solution {
 public:
     int uniquePathsWithObstacles(vector<vector<int>>& obstacleGrid) {
         int n = obstacleGrid[0].size();
-        vector<long long> dp(n, 0);
-        dp[0] = 1;
-        for (auto& row : obstacleGrid)
+        // paths[c] = number of ways to reach column c of the current row.
+        vector<long long> paths(n, 0);
+        paths[0] = 1;
+        for (const auto& row : obstacleGrid) {
             for (int c = 0; c < n; c++) {
-                if (row[c] == 1) dp[c] = 0;
-                else if (c > 0) dp[c] += dp[c - 1];
+                if (row[c] == 1) {
+                    paths[c] = 0; // can't stand on an obstacle
+                } else if (c > 0) {
+                    // Ways from above (already in paths[c]) + ways from the left.
+                    paths[c] += paths[c - 1];
+                }
             }
-        return (int)dp[n - 1];
+        }
+        return (int)paths[n - 1];
     }
 };`,
   tc: 'O(m · n)', sc: 'O(n)',
@@ -448,24 +517,29 @@ expand(l, r):
     candidate = s[l+1 .. r)`,
   cpp: R`
 class Solution {
+    int bestStart = 0;
+    int bestLength = 1;
+
+    // Grow a palindrome outward from the center between left and right.
+    void expand(const string& s, int left, int right) {
+        while (left >= 0 && right < (int)s.size() && s[left] == s[right]) {
+            left--;
+            right++;
+        }
+        // The loop went one step too far on each side.
+        int length = right - left - 1;
+        if (length > bestLength) {
+            bestLength = length;
+            bestStart = left + 1;
+        }
+    }
 public:
     string longestPalindrome(string s) {
-        int n = s.size(), start = 0, len = 1;
-        auto expand = [&](int l, int r) {
-            while (l >= 0 && r < n && s[l] == s[r]) {
-                l--;
-                r++;
-            }
-            if (r - l - 1 > len) {
-                len = r - l - 1;
-                start = l + 1;
-            }
-        };
-        for (int i = 0; i < n; i++) {
-            expand(i, i);
-            expand(i, i + 1);
+        for (int i = 0; i < (int)s.size(); i++) {
+            expand(s, i, i);     // odd length, centered on s[i]
+            expand(s, i, i + 1); // even length, centered between s[i] and s[i + 1]
         }
-        return s.substr(start, len);
+        return s.substr(bestStart, bestLength);
     }
 };`,
   tc: 'O(n²)', sc: 'O(1)',
@@ -491,16 +565,27 @@ return dp[n2]`,
 class Solution {
 public:
     bool isInterleave(string s1, string s2, string s3) {
-        int n1 = s1.size(), n2 = s2.size();
-        if (n1 + n2 != (int)s3.size()) return false;
+        int n1 = s1.size();
+        int n2 = s2.size();
+        if (n1 + n2 != (int)s3.size()) {
+            return false;
+        }
+        // For the current i: dp[j] = can s1[0..i) and s2[0..j) form s3[0..i+j)?
         vector<bool> dp(n2 + 1, false);
-        for (int i = 0; i <= n1; i++)
+        for (int i = 0; i <= n1; i++) {
             for (int j = 0; j <= n2; j++) {
-                if (i == 0 && j == 0) { dp[0] = true; continue; }
-                bool a = i > 0 && dp[j] && s1[i - 1] == s3[i + j - 1];
-                bool b = j > 0 && dp[j - 1] && s2[j - 1] == s3[i + j - 1];
-                dp[j] = a || b;
+                if (i == 0 && j == 0) {
+                    dp[0] = true; // empty + empty = empty
+                    continue;
+                }
+                char wanted = s3[i + j - 1];
+                // The last character came from s1 (dp[j] still holds row i - 1)...
+                bool fromS1 = i > 0 && dp[j] && s1[i - 1] == wanted;
+                // ...or from s2 (dp[j - 1] already holds row i).
+                bool fromS2 = j > 0 && dp[j - 1] && s2[j - 1] == wanted;
+                dp[j] = fromS1 || fromS2;
             }
+        }
         return dp[n2];
     }
 };`,
@@ -523,17 +608,29 @@ return dp[m][n]`,
 class Solution {
 public:
     int minDistance(string word1, string word2) {
-        int m = word1.size(), n = word2.size();
+        int m = word1.size();
+        int n = word2.size();
+        // dp[i][j] = edits to turn word1[0..i) into word2[0..j).
         vector<vector<int>> dp(m + 1, vector<int>(n + 1));
-        for (int i = 0; i <= m; i++) dp[i][0] = i;
-        for (int j = 0; j <= n; j++) dp[0][j] = j;
-        for (int i = 1; i <= m; i++)
+        for (int i = 0; i <= m; i++) {
+            dp[i][0] = i; // delete all i characters
+        }
+        for (int j = 0; j <= n; j++) {
+            dp[0][j] = j; // insert all j characters
+        }
+        for (int i = 1; i <= m; i++) {
             for (int j = 1; j <= n; j++) {
-                if (word1[i - 1] == word2[j - 1])
+                if (word1[i - 1] == word2[j - 1]) {
+                    // The last letters already match: no edit needed.
                     dp[i][j] = dp[i - 1][j - 1];
-                else
-                    dp[i][j] = 1 + min({dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]});
+                } else {
+                    int replaceCost = dp[i - 1][j - 1];
+                    int deleteCost = dp[i - 1][j];
+                    int insertCost = dp[i][j - 1];
+                    dp[i][j] = 1 + min({replaceCost, deleteCost, insertCost});
+                }
             }
+        }
         return dp[m][n];
     }
 };`,
@@ -558,12 +655,16 @@ return sell2`,
 class Solution {
 public:
     int maxProfit(vector<int>& prices) {
-        int buy1 = INT_MIN, sell1 = 0, buy2 = INT_MIN, sell2 = 0;
-        for (int p : prices) {
-            buy1 = max(buy1, -p);
-            sell1 = max(sell1, buy1 + p);
-            buy2 = max(buy2, sell1 - p);
-            sell2 = max(sell2, buy2 + p);
+        // Best balance after each stage. Buying costs money, selling earns it.
+        int buy1 = INT_MIN; // after the first buy
+        int sell1 = 0;      // after the first sell
+        int buy2 = INT_MIN; // after the second buy
+        int sell2 = 0;      // after the second sell
+        for (int price : prices) {
+            buy1 = max(buy1, -price);
+            sell1 = max(sell1, buy1 + price);
+            buy2 = max(buy2, sell1 - price);
+            sell2 = max(sell2, buy2 + price);
         }
         return sell2;
     }
@@ -590,18 +691,26 @@ class Solution {
 public:
     int maxProfit(int k, vector<int>& prices) {
         int n = prices.size();
+        // With k >= n / 2 the limit never matters: take every price rise.
         if (2 * k >= n) {
             int profit = 0;
-            for (int i = 1; i < n; i++)
-                profit += max(0, prices[i] - prices[i - 1]);
+            for (int i = 1; i < n; i++) {
+                if (prices[i] > prices[i - 1]) {
+                    profit += prices[i] - prices[i - 1];
+                }
+            }
             return profit;
         }
-        vector<int> buy(k + 1, INT_MIN), sell(k + 1, 0);
-        for (int p : prices)
+        // buy[j]  = best balance while holding a share in transaction j
+        // sell[j] = best profit after finishing j transactions
+        vector<int> buy(k + 1, INT_MIN);
+        vector<int> sell(k + 1, 0);
+        for (int price : prices) {
             for (int j = 1; j <= k; j++) {
-                buy[j] = max(buy[j], sell[j - 1] - p);
-                sell[j] = max(sell[j], buy[j] + p);
+                buy[j] = max(buy[j], sell[j - 1] - price);
+                sell[j] = max(sell[j], buy[j] + price);
             }
+        }
         return sell[k];
     }
 };`,
@@ -630,19 +739,23 @@ return best * best`,
 class Solution {
 public:
     int maximalSquare(vector<vector<char>>& matrix) {
-        int n = matrix[0].size(), best = 0;
-        vector<int> dp(n + 1, 0);
-        for (auto& row : matrix) {
-            int prevDiag = 0;
+        int n = matrix[0].size();
+        int best = 0;
+        // side[c] = side of the largest all-1 square whose bottom-right corner
+        // is at column c - 1 of the current row.
+        vector<int> side(n + 1, 0);
+        for (const auto& row : matrix) {
+            int diagonal = 0; // the value up and to the left
             for (int c = 1; c <= n; c++) {
-                int tmp = dp[c];
+                int above = side[c]; // still holds the previous row's value
                 if (row[c - 1] == '1') {
-                    dp[c] = 1 + min({dp[c], dp[c - 1], prevDiag});
-                    best = max(best, dp[c]);
+                    // Limited by the squares above, to the left and diagonally.
+                    side[c] = 1 + min({above, side[c - 1], diagonal});
+                    best = max(best, side[c]);
                 } else {
-                    dp[c] = 0;
+                    side[c] = 0;
                 }
-                prevDiag = tmp;
+                diagonal = above;
             }
         }
         return best * best;

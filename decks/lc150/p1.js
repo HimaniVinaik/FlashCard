@@ -19,11 +19,27 @@ while j >= 0:
 class Solution {
 public:
     void merge(vector<int>& nums1, int m, vector<int>& nums2, int n) {
-        int i = m - 1, j = n - 1, k = m + n - 1;
+        // i: last real element of nums1
+        // j: last element of nums2
+        // k: next free slot, filling nums1 from the back
+        int i = m - 1;
+        int j = n - 1;
+        int k = m + n - 1;
+
+        // Keep going until every element of nums2 has been placed.
         while (j >= 0) {
-            if (i >= 0 && nums1[i] > nums2[j]) nums1[k--] = nums1[i--];
-            else nums1[k--] = nums2[j--];
+            if (i >= 0 && nums1[i] > nums2[j]) {
+                // nums1's tail is bigger: move it to the back.
+                nums1[k] = nums1[i];
+                i--;
+            } else {
+                // nums2's tail is bigger (or nums1 is used up).
+                nums1[k] = nums2[j];
+                j--;
+            }
+            k--;
         }
+        // Anything left in nums1[0..i] is already in place.
     }
 };`,
   tc: 'O(m + n)', sc: 'O(1)',
@@ -45,9 +61,15 @@ return k`,
 class Solution {
 public:
     int removeElement(vector<int>& nums, int val) {
+        // k = number of kept elements = the next position to write to
         int k = 0;
-        for (int x : nums)
-            if (x != val) nums[k++] = x;
+        for (int i = 0; i < (int)nums.size(); i++) {
+            if (nums[i] != val) {
+                // Keep this element: copy it to the write position.
+                nums[k] = nums[i];
+                k++;
+            }
+        }
         return k;
     }
 };`,
@@ -71,10 +93,18 @@ return k`,
 class Solution {
 public:
     int removeDuplicates(vector<int>& nums) {
-        if (nums.empty()) return 0;
+        if (nums.empty()) {
+            return 0;
+        }
+        // nums[0..k-1] holds the unique values found so far.
         int k = 1;
-        for (int i = 1; i < (int)nums.size(); i++)
-            if (nums[i] != nums[k - 1]) nums[k++] = nums[i];
+        for (int i = 1; i < (int)nums.size(); i++) {
+            // The array is sorted, so a new value differs from the last kept one.
+            if (nums[i] != nums[k - 1]) {
+                nums[k] = nums[i];
+                k++;
+            }
+        }
         return k;
     }
 };`,
@@ -97,9 +127,16 @@ return k`,
 class Solution {
 public:
     int removeDuplicates(vector<int>& nums) {
+        // k = length of the kept prefix
         int k = 0;
-        for (int x : nums)
-            if (k < 2 || x != nums[k - 2]) nums[k++] = x;
+        for (int i = 0; i < (int)nums.size(); i++) {
+            // Keep nums[i] unless the last two kept values already equal it.
+            // The array is sorted, so comparing with nums[k - 2] is enough.
+            if (k < 2 || nums[i] != nums[k - 2]) {
+                nums[k] = nums[i];
+                k++;
+            }
+        }
         return k;
     }
 };`,
@@ -122,12 +159,21 @@ return cand`,
 class Solution {
 public:
     int majorityElement(vector<int>& nums) {
-        int count = 0, cand = 0;
+        int candidate = 0;
+        int count = 0;
         for (int x : nums) {
-            if (count == 0) cand = x;
-            count += (x == cand) ? 1 : -1;
+            // No votes left: the current value becomes the new candidate.
+            if (count == 0) {
+                candidate = x;
+            }
+            if (x == candidate) {
+                count++; // a vote for the candidate
+            } else {
+                count--; // cancels out against a different value
+            }
         }
-        return cand;
+        // The majority value is the one left standing.
+        return candidate;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -149,9 +195,13 @@ class Solution {
 public:
     void rotate(vector<int>& nums, int k) {
         int n = nums.size();
-        k %= n;
+        // Rotating by n changes nothing, so only k % n matters.
+        k = k % n;
+        // 1) Reverse everything: the last k elements move to the front, backwards.
         reverse(nums.begin(), nums.end());
+        // 2) Put the first k elements back in order.
         reverse(nums.begin(), nums.begin() + k);
+        // 3) Put the remaining n - k elements back in order.
         reverse(nums.begin() + k, nums.end());
     }
 };`,
@@ -174,10 +224,13 @@ return best`,
 class Solution {
 public:
     int maxProfit(vector<int>& prices) {
-        int minP = INT_MAX, best = 0;
-        for (int p : prices) {
-            minP = min(minP, p);
-            best = max(best, p - minP);
+        int minPrice = INT_MAX; // cheapest price seen so far
+        int best = 0;           // best profit so far
+        for (int price : prices) {
+            // Buying on the cheapest earlier day is always best.
+            minPrice = min(minPrice, price);
+            // Profit if we sold today.
+            best = max(best, price - minPrice);
         }
         return best;
     }
@@ -202,8 +255,12 @@ class Solution {
 public:
     int maxProfit(vector<int>& prices) {
         int profit = 0;
-        for (int i = 1; i < (int)prices.size(); i++)
-            profit += max(0, prices[i] - prices[i - 1]);
+        for (int i = 1; i < (int)prices.size(); i++) {
+            // Collect every rise from one day to the next.
+            if (prices[i] > prices[i - 1]) {
+                profit += prices[i] - prices[i - 1];
+            }
+        }
         return profit;
     }
 };`,
@@ -226,9 +283,14 @@ return true`,
 class Solution {
 public:
     bool canJump(vector<int>& nums) {
+        // reach = farthest index we can get to so far
         int reach = 0;
         for (int i = 0; i < (int)nums.size(); i++) {
-            if (i > reach) return false;
+            // We can't even get to index i: we are stuck.
+            if (i > reach) {
+                return false;
+            }
+            // From index i we can jump as far as i + nums[i].
             reach = max(reach, i + nums[i]);
         }
         return true;
@@ -255,12 +317,16 @@ return jumps`,
 class Solution {
 public:
     int jump(vector<int>& nums) {
-        int jumps = 0, end = 0, far = 0;
+        int jumps = 0;
+        int currentEnd = 0; // last index reachable with "jumps" jumps
+        int farthest = 0;   // farthest index reachable with one more jump
+        // We never need to jump from the last index, so stop before it.
         for (int i = 0; i + 1 < (int)nums.size(); i++) {
-            far = max(far, i + nums[i]);
-            if (i == end) {
+            farthest = max(farthest, i + nums[i]);
+            // We reached the edge of the current range: we must jump now.
+            if (i == currentEnd) {
                 jumps++;
-                end = far;
+                currentEnd = farthest;
             }
         }
         return jumps;
@@ -287,12 +353,20 @@ class Solution {
 public:
     int hIndex(vector<int>& citations) {
         int n = citations.size();
-        vector<int> cnt(n + 1, 0);
-        for (int c : citations) cnt[min(c, n)]++;
+        // count[c] = papers with exactly c citations.
+        // Anything above n goes into count[n], since h can't exceed n.
+        vector<int> count(n + 1, 0);
+        for (int c : citations) {
+            int bucket = min(c, n);
+            count[bucket]++;
+        }
+        // Try h from n down. total = papers with at least h citations.
         int total = 0;
         for (int h = n; h >= 0; h--) {
-            total += cnt[h];
-            if (total >= h) return h;
+            total += count[h];
+            if (total >= h) {
+                return h;
+            }
         }
         return 0;
     }
@@ -320,31 +394,39 @@ getRandom():
     return a[random index]`,
   cpp: R`
 class RandomizedSet {
-    vector<int> a;
-    unordered_map<int, int> pos;
+    vector<int> values;              // the elements, for O(1) random picks
+    unordered_map<int, int> indexOf; // value -> its index in "values"
 public:
     RandomizedSet() {}
 
     bool insert(int val) {
-        if (pos.count(val)) return false;
-        pos[val] = a.size();
-        a.push_back(val);
+        if (indexOf.count(val)) {
+            return false; // already present
+        }
+        // Add to the end and remember where it is.
+        indexOf[val] = values.size();
+        values.push_back(val);
         return true;
     }
 
     bool remove(int val) {
-        auto it = pos.find(val);
-        if (it == pos.end()) return false;
-        int i = it->second, last = a.back();
-        a[i] = last;
-        pos[last] = i;
-        a.pop_back();
-        pos.erase(val);
+        auto it = indexOf.find(val);
+        if (it == indexOf.end()) {
+            return false; // not present
+        }
+        int index = it->second;
+        int last = values.back();
+        // Move the last element into the hole, then drop the end.
+        values[index] = last;
+        indexOf[last] = index;
+        values.pop_back();
+        indexOf.erase(val);
         return true;
     }
 
     int getRandom() {
-        return a[rand() % a.size()];
+        int index = rand() % values.size();
+        return values[index];
     }
 };`,
   tc: 'O(1) average per operation', sc: 'O(n)',
@@ -370,14 +452,18 @@ class Solution {
 public:
     vector<int> productExceptSelf(vector<int>& nums) {
         int n = nums.size();
-        vector<int> ans(n, 1);
-        for (int i = 1; i < n; i++) ans[i] = ans[i - 1] * nums[i - 1];
-        int right = 1;
-        for (int i = n - 1; i >= 0; i--) {
-            ans[i] *= right;
-            right *= nums[i];
+        vector<int> answer(n, 1);
+        // Pass 1: answer[i] = product of everything to the LEFT of i.
+        for (int i = 1; i < n; i++) {
+            answer[i] = answer[i - 1] * nums[i - 1];
         }
-        return ans;
+        // Pass 2: multiply in the product of everything to the RIGHT of i.
+        int rightProduct = 1;
+        for (int i = n - 1; i >= 0; i--) {
+            answer[i] = answer[i] * rightProduct;
+            rightProduct = rightProduct * nums[i];
+        }
+        return answer;
     }
 };`,
   tc: 'O(n)', sc: 'O(1) extra (the output array does not count)',
@@ -402,17 +488,25 @@ return total < 0 ? -1 : start`,
 class Solution {
 public:
     int canCompleteCircuit(vector<int>& gas, vector<int>& cost) {
-        int total = 0, tank = 0, start = 0;
+        int total = 0; // gas minus cost over the whole loop
+        int tank = 0;  // fuel left since the current starting station
+        int start = 0; // current candidate starting station
         for (int i = 0; i < (int)gas.size(); i++) {
-            int d = gas[i] - cost[i];
-            total += d;
-            tank += d;
+            int gain = gas[i] - cost[i];
+            total += gain;
+            tank += gain;
+            // We ran dry before reaching i + 1.
+            // No station from start to i can work, so try starting at i + 1.
             if (tank < 0) {
                 start = i + 1;
                 tank = 0;
             }
         }
-        return total < 0 ? -1 : start;
+        // Not enough gas overall: no starting station works.
+        if (total < 0) {
+            return -1;
+        }
+        return start;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -436,12 +530,26 @@ class Solution {
 public:
     int candy(vector<int>& ratings) {
         int n = ratings.size();
-        vector<int> c(n, 1);
-        for (int i = 1; i < n; i++)
-            if (ratings[i] > ratings[i - 1]) c[i] = c[i - 1] + 1;
-        for (int i = n - 2; i >= 0; i--)
-            if (ratings[i] > ratings[i + 1]) c[i] = max(c[i], c[i + 1] + 1);
-        return accumulate(c.begin(), c.end(), 0);
+        // Everyone gets at least one candy.
+        vector<int> candies(n, 1);
+        // Left to right: get more than the left neighbor if rated higher.
+        for (int i = 1; i < n; i++) {
+            if (ratings[i] > ratings[i - 1]) {
+                candies[i] = candies[i - 1] + 1;
+            }
+        }
+        // Right to left: also get more than the right neighbor if rated higher.
+        // Keep whichever requirement is larger.
+        for (int i = n - 2; i >= 0; i--) {
+            if (ratings[i] > ratings[i + 1]) {
+                candies[i] = max(candies[i], candies[i + 1] + 1);
+            }
+        }
+        int total = 0;
+        for (int c : candies) {
+            total += c;
+        }
+        return total;
     }
 };`,
   tc: 'O(n)', sc: 'O(n)',
@@ -465,15 +573,22 @@ return water`,
 class Solution {
 public:
     int trap(vector<int>& height) {
-        int l = 0, r = (int)height.size() - 1;
-        int lmax = 0, rmax = 0, water = 0;
-        while (l < r) {
-            if (height[l] < height[r]) {
-                lmax = max(lmax, height[l]);
-                water += lmax - height[l++];
+        int left = 0;
+        int right = (int)height.size() - 1;
+        int leftMax = 0;  // tallest bar seen from the left
+        int rightMax = 0; // tallest bar seen from the right
+        int water = 0;
+        while (left < right) {
+            if (height[left] < height[right]) {
+                // The left side is lower, so leftMax sets its water level.
+                leftMax = max(leftMax, height[left]);
+                water += leftMax - height[left];
+                left++;
             } else {
-                rmax = max(rmax, height[r]);
-                water += rmax - height[r--];
+                // The right side is lower (or equal), so use rightMax.
+                rightMax = max(rightMax, height[right]);
+                water += rightMax - height[right];
+                right--;
             }
         }
         return water;
@@ -497,21 +612,37 @@ for i in 0 .. n-1:
 return total`,
   cpp: R`
 class Solution {
+    // Value of a single Roman symbol.
+    int value(char c) {
+        switch (c) {
+            case 'I':
+                return 1;
+            case 'V':
+                return 5;
+            case 'X':
+                return 10;
+            case 'L':
+                return 50;
+            case 'C':
+                return 100;
+            case 'D':
+                return 500;
+            default:
+                return 1000; // 'M'
+        }
+    }
 public:
     int romanToInt(string s) {
-        auto val = [](char c) {
-            switch (c) {
-                case 'I': return 1;   case 'V': return 5;
-                case 'X': return 10;  case 'L': return 50;
-                case 'C': return 100; case 'D': return 500;
-                default:  return 1000; // 'M'
-            }
-        };
-        int total = 0, n = s.size();
+        int total = 0;
+        int n = s.size();
         for (int i = 0; i < n; i++) {
-            int v = val(s[i]);
-            if (i + 1 < n && v < val(s[i + 1])) total -= v;
-            else total += v;
+            int current = value(s[i]);
+            // A smaller symbol before a bigger one is subtracted (IV = 4).
+            if (i + 1 < n && current < value(s[i + 1])) {
+                total -= current;
+            } else {
+                total += current;
+            }
         }
         return total;
     }
@@ -536,17 +667,20 @@ return out`,
 class Solution {
 public:
     string intToRoman(int num) {
-        const int vals[] = {1000, 900, 500, 400, 100, 90,
-                            50, 40, 10, 9, 5, 4, 1};
-        const char* syms[] = {"M", "CM", "D", "CD", "C", "XC",
-                              "L", "XL", "X", "IX", "V", "IV", "I"};
-        string out;
-        for (int i = 0; i < 13; i++)
-            while (num >= vals[i]) {
-                out += syms[i];
-                num -= vals[i];
+        // Every symbol value from largest to smallest, including pairs like CM and IV.
+        const int values[] = {1000, 900, 500, 400, 100, 90,
+                              50, 40, 10, 9, 5, 4, 1};
+        const string symbols[] = {"M", "CM", "D", "CD", "C", "XC",
+                                  "L", "XL", "X", "IX", "V", "IV", "I"};
+        string result;
+        for (int i = 0; i < 13; i++) {
+            // Use the biggest symbol as many times as it still fits.
+            while (num >= values[i]) {
+                result += symbols[i];
+                num -= values[i];
             }
-        return out;
+        }
+        return result;
     }
 };`,
   tc: 'O(1), at most about 15 symbols', sc: 'O(1)',
@@ -568,10 +702,18 @@ return len`,
 class Solution {
 public:
     int lengthOfLastWord(string s) {
-        int i = (int)s.size() - 1, len = 0;
-        while (i >= 0 && s[i] == ' ') i--;
-        while (i >= 0 && s[i] != ' ') { len++; i--; }
-        return len;
+        int i = (int)s.size() - 1;
+        // Skip the spaces at the end.
+        while (i >= 0 && s[i] == ' ') {
+            i--;
+        }
+        // Count letters until the next space (or the start of the string).
+        int length = 0;
+        while (i >= 0 && s[i] != ' ') {
+            length++;
+            i--;
+        }
+        return length;
     }
 };`,
   tc: 'O(n)', sc: 'O(1)',
@@ -594,13 +736,19 @@ return strs[0]`,
 class Solution {
 public:
     string longestCommonPrefix(vector<string>& strs) {
-        for (int i = 0; i < (int)strs[0].size(); i++) {
-            char c = strs[0][i];
-            for (int j = 1; j < (int)strs.size(); j++)
-                if (i == (int)strs[j].size() || strs[j][i] != c)
-                    return strs[0].substr(0, i);
+        string first = strs[0];
+        // Check one column (character position) at a time.
+        for (int i = 0; i < (int)first.size(); i++) {
+            char c = first[i];
+            for (int j = 1; j < (int)strs.size(); j++) {
+                // Stop where a string ends or has a different character.
+                if (i == (int)strs[j].size() || strs[j][i] != c) {
+                    return first.substr(0, i);
+                }
+            }
         }
-        return strs[0];
+        // Every string starts with all of strs[0].
+        return first;
     }
 };`,
   tc: 'O(S), where S is the total number of characters', sc: 'O(1)',
@@ -623,16 +771,22 @@ return out`,
 class Solution {
 public:
     string reverseWords(string s) {
+        // Reading with >> skips any number of spaces between words.
         istringstream in(s);
         vector<string> words;
-        string w;
-        while (in >> w) words.push_back(w);
-        string out;
-        for (int i = (int)words.size() - 1; i >= 0; i--) {
-            out += words[i];
-            if (i > 0) out += ' ';
+        string word;
+        while (in >> word) {
+            words.push_back(word);
         }
-        return out;
+        // Join the words from last to first, with single spaces.
+        string result;
+        for (int i = (int)words.size() - 1; i >= 0; i--) {
+            result += words[i];
+            if (i > 0) {
+                result += ' ';
+            }
+        }
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(n)',
@@ -657,18 +811,28 @@ return concat(rows)`,
 class Solution {
 public:
     string convert(string s, int numRows) {
-        if (numRows == 1) return s;
-        vector<string> rows(numRows);
-        int r = 0, step = 1;
-        for (char c : s) {
-            rows[r] += c;
-            if (r == 0) step = 1;
-            else if (r == numRows - 1) step = -1;
-            r += step;
+        if (numRows == 1) {
+            return s; // a single row has no zigzag
         }
-        string out;
-        for (auto& row : rows) out += row;
-        return out;
+        vector<string> rows(numRows);
+        int row = 0;
+        int step = 1; // +1 while going down, -1 while going up
+        for (char c : s) {
+            rows[row] += c;
+            // Turn around at the top and bottom rows.
+            if (row == 0) {
+                step = 1;
+            } else if (row == numRows - 1) {
+                step = -1;
+            }
+            row += step;
+        }
+        // Read the rows from top to bottom.
+        string result;
+        for (const string& r : rows) {
+            result += r;
+        }
+        return result;
     }
 };`,
   tc: 'O(n)', sc: 'O(n)',
@@ -692,18 +856,38 @@ return -1`,
 class Solution {
 public:
     int strStr(string haystack, string needle) {
-        int n = haystack.size(), m = needle.size();
-        if (m == 0) return 0;
-        vector<int> lps(m, 0);
-        for (int i = 1, k = 0; i < m; i++) {
-            while (k > 0 && needle[i] != needle[k]) k = lps[k - 1];
-            if (needle[i] == needle[k]) k++;
-            lps[i] = k;
+        int n = haystack.size();
+        int m = needle.size();
+        if (m == 0) {
+            return 0;
         }
-        for (int i = 0, j = 0; i < n; i++) {
-            while (j > 0 && haystack[i] != needle[j]) j = lps[j - 1];
-            if (haystack[i] == needle[j]) j++;
-            if (j == m) return i - m + 1;
+        // lps[i] = length of the longest proper prefix of needle[0..i]
+        // that is also a suffix of it. It tells us where to fall back.
+        vector<int> lps(m, 0);
+        int len = 0;
+        for (int i = 1; i < m; i++) {
+            while (len > 0 && needle[i] != needle[len]) {
+                len = lps[len - 1];
+            }
+            if (needle[i] == needle[len]) {
+                len++;
+            }
+            lps[i] = len;
+        }
+        // Scan the haystack. j = how many characters of needle match so far.
+        int j = 0;
+        for (int i = 0; i < n; i++) {
+            // Mismatch: fall back using lps instead of starting over.
+            while (j > 0 && haystack[i] != needle[j]) {
+                j = lps[j - 1];
+            }
+            if (haystack[i] == needle[j]) {
+                j++;
+            }
+            // The whole needle matched. It started m - 1 characters back.
+            if (j == m) {
+                return i - m + 1;
+            }
         }
         return -1;
     }
@@ -735,33 +919,49 @@ while i < n:
 class Solution {
 public:
     vector<string> fullJustify(vector<string>& words, int maxWidth) {
-        vector<string> res;
-        int n = words.size(), i = 0;
+        vector<string> result;
+        int n = words.size();
+        int i = 0; // first word of the current line
         while (i < n) {
-            int j = i, len = 0;
-            while (j < n && len + (int)words[j].size() + (j - i) <= maxWidth)
-                len += words[j++].size();
+            // 1) Find how many words fit. j ends one past the last word.
+            int j = i;
+            int letters = 0; // letters on this line, not counting spaces
+            while (j < n && letters + (int)words[j].size() + (j - i) <= maxWidth) {
+                letters += words[j].size();
+                j++;
+            }
             int gaps = j - i - 1;
             string line;
             if (j == n || gaps == 0) {
+                // 2a) Last line, or a single word: left-justify.
                 for (int k = i; k < j; k++) {
                     line += words[k];
-                    if (k < j - 1) line += ' ';
+                    if (k < j - 1) {
+                        line += ' ';
+                    }
                 }
                 line += string(maxWidth - line.size(), ' ');
             } else {
-                int sp = (maxWidth - len) / gaps;
-                int extra = (maxWidth - len) % gaps;
+                // 2b) Spread the spaces. The leftmost gaps get one extra.
+                int spaces = maxWidth - letters;
+                int perGap = spaces / gaps;
+                int extra = spaces % gaps;
                 for (int k = i; k < j; k++) {
                     line += words[k];
-                    if (k < j - 1)
-                        line += string(sp + (k - i < extra ? 1 : 0), ' ');
+                    if (k < j - 1) {
+                        int count = perGap;
+                        if (k - i < extra) {
+                            count += 1;
+                        }
+                        line += string(count, ' ');
+                    }
                 }
             }
-            res.push_back(line);
+            result.push_back(line);
+            // The next line starts with the next word.
             i = j;
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(total characters)', sc: 'O(total characters) for the output',
@@ -786,14 +986,24 @@ return true`,
 class Solution {
 public:
     bool isPalindrome(string s) {
-        int l = 0, r = (int)s.size() - 1;
-        while (l < r) {
-            while (l < r && !isalnum((unsigned char)s[l])) l++;
-            while (l < r && !isalnum((unsigned char)s[r])) r--;
-            if (tolower((unsigned char)s[l]) != tolower((unsigned char)s[r]))
+        int left = 0;
+        int right = (int)s.size() - 1;
+        while (left < right) {
+            // Skip anything that isn't a letter or a digit.
+            while (left < right && !isalnum((unsigned char)s[left])) {
+                left++;
+            }
+            while (left < right && !isalnum((unsigned char)s[right])) {
+                right--;
+            }
+            // Compare, ignoring upper/lower case.
+            char a = tolower((unsigned char)s[left]);
+            char b = tolower((unsigned char)s[right]);
+            if (a != b) {
                 return false;
-            l++;
-            r--;
+            }
+            left++;
+            right--;
         }
         return true;
     }
@@ -816,9 +1026,14 @@ return i == len(s)`,
 class Solution {
 public:
     bool isSubsequence(string s, string t) {
+        // i = how many characters of s we have matched so far
         int i = 0;
-        for (char c : t)
-            if (i < (int)s.size() && s[i] == c) i++;
+        for (char c : t) {
+            // Match the next needed character of s as early as possible.
+            if (i < (int)s.size() && s[i] == c) {
+                i++;
+            }
+        }
         return i == (int)s.size();
     }
 };`,
@@ -842,12 +1057,18 @@ while l < r:
 class Solution {
 public:
     vector<int> twoSum(vector<int>& numbers, int target) {
-        int l = 0, r = (int)numbers.size() - 1;
-        while (l < r) {
-            int s = numbers[l] + numbers[r];
-            if (s == target) return {l + 1, r + 1};
-            if (s < target) l++;
-            else r--;
+        int left = 0;
+        int right = (int)numbers.size() - 1;
+        while (left < right) {
+            int sum = numbers[left] + numbers[right];
+            if (sum == target) {
+                return {left + 1, right + 1}; // the answer is 1-indexed
+            }
+            if (sum < target) {
+                left++; // we need a bigger sum
+            } else {
+                right--; // we need a smaller sum
+            }
         }
         return {};
     }
@@ -872,11 +1093,19 @@ return best`,
 class Solution {
 public:
     int maxArea(vector<int>& height) {
-        int l = 0, r = (int)height.size() - 1, best = 0;
-        while (l < r) {
-            best = max(best, (r - l) * min(height[l], height[r]));
-            if (height[l] < height[r]) l++;
-            else r--;
+        int left = 0;
+        int right = (int)height.size() - 1;
+        int best = 0;
+        while (left < right) {
+            int width = right - left;
+            int waterHeight = min(height[left], height[right]);
+            best = max(best, width * waterHeight);
+            // Move the shorter line. Moving the taller one can never help.
+            if (height[left] < height[right]) {
+                left++;
+            } else {
+                right--;
+            }
         }
         return best;
     }
@@ -909,26 +1138,41 @@ class Solution {
 public:
     vector<vector<int>> threeSum(vector<int>& nums) {
         sort(nums.begin(), nums.end());
-        vector<vector<int>> res;
+        vector<vector<int>> result;
         int n = nums.size();
         for (int i = 0; i + 2 < n; i++) {
-            if (nums[i] > 0) break;
-            if (i > 0 && nums[i] == nums[i - 1]) continue;
-            int l = i + 1, r = n - 1;
-            while (l < r) {
-                int s = nums[i] + nums[l] + nums[r];
-                if (s < 0) l++;
-                else if (s > 0) r--;
-                else {
-                    res.push_back({nums[i], nums[l], nums[r]});
-                    while (l < r && nums[l] == nums[l + 1]) l++;
-                    while (l < r && nums[r] == nums[r - 1]) r--;
-                    l++;
-                    r--;
+            // The smallest number is positive: no triplet can sum to 0.
+            if (nums[i] > 0) {
+                break;
+            }
+            // Skip a repeated first number to avoid duplicate triplets.
+            if (i > 0 && nums[i] == nums[i - 1]) {
+                continue;
+            }
+            // Two pointers look for a pair that sums to -nums[i].
+            int left = i + 1;
+            int right = n - 1;
+            while (left < right) {
+                int sum = nums[i] + nums[left] + nums[right];
+                if (sum < 0) {
+                    left++;
+                } else if (sum > 0) {
+                    right--;
+                } else {
+                    result.push_back({nums[i], nums[left], nums[right]});
+                    // Skip repeats of the two numbers we just used.
+                    while (left < right && nums[left] == nums[left + 1]) {
+                        left++;
+                    }
+                    while (left < right && nums[right] == nums[right - 1]) {
+                        right--;
+                    }
+                    left++;
+                    right--;
                 }
             }
         }
-        return res;
+        return result;
     }
 };`,
   tc: 'O(n²)', sc: 'O(1) extra, apart from sorting and the output',

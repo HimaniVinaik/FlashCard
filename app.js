@@ -168,6 +168,8 @@ function normalizeCard(c) {
     createdAt: Number(c.createdAt) || now(),
     updatedAt: Number(c.updatedAt) || now(),
     srs: normalizeSrs(c.srs),
+    // Built-in deck cards remember where they came from ("deckId:key"), so deck updates can find them.
+    deckRef: typeof c.deckRef === 'string' ? c.deckRef : undefined,
   };
 }
 function normalizeData(d) {
@@ -202,7 +204,12 @@ function normalizeData(d) {
       }
     }
   }
-  return { version: 2, folders, cards, packs, settings, days };
+  // Content version of each installed built-in deck.
+  const packVersions = {};
+  if (d.packVersions && typeof d.packVersions === 'object') {
+    for (const [k, v] of Object.entries(d.packVersions)) packVersions[k] = Number(v) || 1;
+  }
+  return { version: 2, folders, cards, packs, packVersions, settings, days };
 }
 
 /* ----- Built-in decks (loaded on demand from /decks) ----- */
@@ -217,7 +224,9 @@ function loadScript(src) {
 }
 /** Built-in decks. Each is installed once, automatically, and can be re-added from Settings. */
 const PACKS = [
-  { id: 'lc150', global: 'LC150', base: 'decks/lc150/', count: 150, label: 'LC 150', added: 'Added the LC deck: 150 interview problems',
+  // version: bump when a deck's card text changes, so installed copies get updated in place.
+  { id: 'lc150', global: 'LC150', base: 'decks/lc150/', count: 150, version: 2, label: 'LC 150', added: 'Added the LC deck: 150 interview problems',
+    updated: 'Updated the LC cards with commented, easier-to-read C++ solutions',
     about: 'LeetCode Top Interview 150, as an LC folder grouped by topic' },
   { id: 'spanish500', global: 'SPANISH500', base: 'decks/spanish/', count: 529, label: 'Spanish', added: 'Added the Spanish deck: 529 beginner words',
     about: '529 beginner words with example sentences, as a Spanish folder' },
@@ -262,15 +271,61 @@ function installDeck(deck) {
     const { front, back } = deck.build(p);
     Store.data.cards.push(normalizeCard({
       id: uid(), folderId: subs[p.k].id, front: { text: front }, back: { text: back }, createdAt: t + 1000 + i,
+      deckRef: deck.key ? `${deck.id}:${deck.key(p)}` : undefined,
     }));
   });
   if (!Store.data.packs.includes(deck.id)) Store.data.packs.push(deck.id);
+  Store.data.packVersions[deck.id] = Math.max(Store.data.packVersions[deck.id] || 1, deck.version || 1);
   return root;
+}
+/** Rewrites the text of already-installed cards from a newer version of a deck.
+ *  Review progress and history are kept. Cards are matched by their stored deck
+ *  reference, or (for cards installed before references existed) by their unchanged front. */
+function refreshDeck(deck) {
+  const byRef = new Map();
+  const byFront = new Map();
+  deck.problems.forEach((p) => {
+    const built = deck.build(p);
+    const ref = `${deck.id}:${deck.key(p)}`;
+    byRef.set(ref, { built, ref });
+    byFront.set(built.front, { built, ref });
+  });
+  let updated = 0;
+  for (const card of Store.data.cards) {
+    const match = (card.deckRef && byRef.get(card.deckRef)) || (!card.deckRef && byFront.get(card.front.text));
+    if (!match) continue;
+    if (card.back.text !== match.built.back || card.front.text !== match.built.front) {
+      card.front.text = match.built.front;
+      card.back.text = match.built.back;
+      card.updatedAt = now();
+      updated++;
+    }
+    card.deckRef = match.ref;
+  }
+  return updated;
 }
 /** Installs each built-in deck once, the first time the app runs with a version that has it. */
 async function ensurePacks() {
   for (const def of PACKS) {
-    if (Store.data.packs.includes(def.id)) continue;
+    if (Store.data.packs.includes(def.id)) {
+      // Installed already: update its cards if this app has a newer version of the deck.
+      const have = Store.data.packVersions[def.id] || 1;
+      if (def.version && def.version > have) {
+        try {
+          const deck = await loadPack(def);
+          const updated = refreshDeck(deck);
+          Store.data.packVersions[def.id] = def.version;
+          await Store.flush();
+          if (updated) {
+            render('none');
+            toast(def.updated || `Updated the ${def.label} deck`);
+          }
+        } catch (e) {
+          console.warn(`${def.label} deck not updated yet`, e);
+        }
+      }
+      continue;
+    }
     try {
       const deck = await loadPack(def);
       if (Store.data.packs.includes(def.id)) continue;
@@ -1734,6 +1789,9 @@ function importBackup() {
       }
     }
     Store.data.packs = packs;
+    for (const [k, v] of Object.entries(incoming.packVersions || {})) {
+      Store.data.packVersions[k] = Math.max(Store.data.packVersions[k] || 1, v);
+    }
     await Store.flush();
     toast('Import complete');
     render('none');
@@ -1814,7 +1872,7 @@ Views.settings = (r) => {
           onclick: async () => {
             if (!(await confirmDialog('Delete all data?', 'Every folder and card will be permanently deleted. Export a backup first if you want to keep them.', 'Delete All', true))) return;
             // Keep settings and the record of installed decks, so the LC deck is not re-added.
-            Store.data = normalizeData({ packs: Store.data.packs, settings: Store.data.settings });
+            Store.data = normalizeData({ packs: Store.data.packs, packVersions: Store.data.packVersions, settings: Store.data.settings });
             await Store.flush();
             toast('All data deleted');
             stack.length = 1;
