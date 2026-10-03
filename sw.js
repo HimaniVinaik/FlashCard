@@ -1,6 +1,6 @@
 // Service worker: caches the app shell so FlashCard opens offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = 'flashcard-v4';
+const VERSION = 'flashcard-v5';
 const SHELL = [
   './',
   './index.html',

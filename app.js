@@ -150,7 +150,7 @@ function normalizeSrs(s) {
   return o;
 }
 const HISTORY_MAX = 30;
-const DEFAULT_SETTINGS = { newPerDay: 20 };
+const DEFAULT_SETTINGS = { newPerDay: 9999 }; // 9999 = no limit
 
 function normalizeSide(s) {
   s = s && typeof s === 'object' ? s : {};
@@ -188,6 +188,8 @@ function normalizeData(d) {
   const packs = Array.isArray(d.packs) ? d.packs.filter((p) => typeof p === 'string') : [];
   const settings = Object.assign({}, DEFAULT_SETTINGS, d.settings && typeof d.settings === 'object' ? d.settings : {});
   if (!(Number(settings.newPerDay) >= 0)) settings.newPerDay = DEFAULT_SETTINGS.newPerDay;
+  // Studying is never limited by default. Older versions defaulted to 20 new cards a day; lift that once.
+  if (!settings.noLimitDefault) { settings.newPerDay = 9999; settings.noLimitDefault = true; }
   const days = {};
   if (d.days && typeof d.days === 'object') {
     for (const [k, v] of Object.entries(d.days)) {
@@ -476,6 +478,9 @@ function forecast(cards, days = 7) {
 
 function applyGrade(srs, grade) {
   const t = now();
+  const prevLast = srs.last;
+  // Reviewing a card before it's due (extra study sessions) must not wreck its schedule.
+  const early = srs.state === 'review' && srs.due > t;
   srs.last = t;
   srs.reps++;
   srs.history = (srs.history || []).concat([[t, GRADES.indexOf(grade)]]).slice(-HISTORY_MAX);
@@ -486,7 +491,9 @@ function applyGrade(srs, grade) {
     else { srs.state = 'review'; srs.interval = Math.max(4, srs.interval); srs.ease += 0.15; srs.due = startOfDayPlus(srs.interval); }
     return srs;
   }
-  const iv = srs.interval || 1;
+  const oldInterval = srs.interval || 1;
+  // For an early review, base the next gap on the time actually elapsed, not the planned interval.
+  const iv = early && prevLast ? Math.max(1, Math.min(oldInterval, Math.round((t - prevLast) / DAY))) : oldInterval;
   if (grade === 'again') {
     srs.lapses++;
     srs.ease = Math.max(1.3, srs.ease - 0.2);
@@ -498,6 +505,7 @@ function applyGrade(srs, grade) {
   if (grade === 'hard') { srs.interval = Math.max(iv + 1, Math.round(iv * 1.2)); srs.ease = Math.max(1.3, srs.ease - 0.15); }
   else if (grade === 'good') { srs.interval = Math.max(iv + 1, Math.round(iv * srs.ease)); }
   else { srs.interval = Math.max(iv + 2, Math.round(iv * srs.ease * 1.3)); srs.ease += 0.15; }
+  if (early) srs.interval = Math.max(srs.interval, oldInterval); // studying early never shortens the gap
   srs.due = startOfDayPlus(srs.interval);
   return srs;
 }
@@ -1049,7 +1057,8 @@ function scheduleSection(cards, st) {
       h('div', { class: 'row plain static' },
         h('span', { class: 'row-main' }, label),
         h('span', { class: 'row-meta' + (cls ? ' ' + cls : '') }, plural(n, 'card'))))),
-    h('div', { class: 'section-footer' }, `New cards per day: ${Store.data.settings.newPerDay >= 9999 ? 'no limit' : Store.data.settings.newPerDay}. You can change this in Settings.`));
+    h('div', { class: 'section-footer' }, Store.data.settings.newPerDay >= 9999 ? 'You can study as often as you like. Extra reviews never mess up the schedule.'
+      : `New cards per day: ${Store.data.settings.newPerDay}. You can change this in Settings.`));
   return out;
 }
 
@@ -1239,15 +1248,15 @@ Views.folder = (r) => {
       h('div', { class: 'btn-row' },
         h('button', {
           class: 'btn',
-          disabled: !toStudy,
           onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'due' }),
-        }, toStudy ? 'Study Now' : 'All Caught Up ✓'),
+        }, 'Study Now'),
         h('button', {
           class: 'btn secondary',
           onclick: () => navigate({ view: 'study', folderId: f.id, mode: 'practice' }),
         }, 'Flip All')),
-      !toStudy && st.new ? h('div', { class: 'row-sub', style: { whiteSpace: 'normal', textAlign: 'center' } },
-        `You've reached today's limit of new cards. ${plural(st.new, 'card')} not started yet.`) : null));
+      !toStudy ? h('div', { class: 'row-sub', style: { whiteSpace: 'normal', textAlign: 'center' } },
+        st.new ? `All caught up for today. Study Now goes through all cards again; ${plural(st.new, 'card')} not started yet.`
+          : 'All caught up ✓ Study Now goes through all cards again.') : null));
   }
 
   if (subs.length) {
@@ -1485,6 +1494,13 @@ function buildSession(folderId, mode) {
     const fresh = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, newLeftToday(rootOf(folderId))); // daily limit on new cards per deck, like Anki
     queue = [...learn, ...review, ...fresh].map((c) => c.id);
+    if (!queue.length) {
+      // Nothing due: study every card in the folder again, soonest due first. Grading still counts.
+      const started = cards.filter((c) => c.srs.state !== 'new').sort((a, b) => a.srs.due - b.srs.due);
+      const unseen = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt);
+      queue = [...started, ...unseen].map((c) => c.id);
+      return { queue, done: 0, flipped: false, mode, again: true };
+    }
   }
   return { queue, done: 0, flipped: false, mode };
 }
@@ -1521,7 +1537,7 @@ Views.study = (r) => {
   const s = r.session || (r.session = buildSession(f.id, r.mode));
   const practice = s.mode === 'practice';
   const editBtn = navBtn('Edit', () => { if (s.queue[0]) navigate({ view: 'editor', cardId: s.queue[0] }); });
-  const nav = navbar({ title: practice ? 'Flip All' : 'Study', backLabel: f.name, alwaysTitle: true, right: [editBtn] });
+  const nav = navbar({ title: practice ? 'Flip All' : s.again ? 'Study Again' : 'Study', backLabel: f.name, alwaysTitle: true, right: [editBtn] });
   const content = h('main', { class: 'content' });
   const screen = h('div', { class: 'screen study' }, nav, content);
 
@@ -1544,7 +1560,8 @@ Views.study = (r) => {
       h('p', null, practice
         ? `You went through ${plural(s.done, 'card')}.`
         : `You reviewed ${plural(s.done, 'card')}.` + (upcoming ? ` Next card is due ${fmtDue(upcoming)}.` : '')),
-      h('button', { class: 'btn', onclick: () => { r.session = buildSession(f.id, 'practice'); render('none'); } }, practice ? 'Go Again' : 'Flip Through All Cards'),
+      h('button', { class: 'btn', onclick: () => { r.session = buildSession(f.id, practice ? 'practice' : 'due'); render('none'); } }, practice ? 'Go Again' : 'Study Again'),
+      !practice ? h('button', { class: 'btn secondary', onclick: () => { r.session = buildSession(f.id, 'practice'); render('none'); } }, 'Flip Through All Cards') : null,
       h('button', { class: 'btn secondary', onclick: back }, 'Back to Folder')));
   }
 
@@ -1776,7 +1793,7 @@ Views.settings = (r) => {
         render('none');
       }))),
     h('div', { class: 'section-footer' },
-      'Study Now shows the cards that are due, plus up to this many new cards per deck each day (each deck gets its own allowance). Cards you get right come back after longer and longer gaps.'),
+      'Study Now shows the cards that are due plus new cards. When nothing is due, it goes through all the cards again, as many times as you like. Set a limit here only if you want fewer new cards per deck each day.'),
 
     h('div', { class: 'section-header' }, 'Backup'),
     h('div', { class: 'list' },

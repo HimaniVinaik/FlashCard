@@ -16,7 +16,7 @@ A simple, elegant flash card web app for iPhone, inspired by AnkiMobile.
 - **Conversions deck**: 52 cards in a **Conversions** folder: length, weight, volume and cooking, temperature, area, speed and energy. US units are on the front, metric on the back.
 - **Useful Facts deck**: 112 cards in a **Useful Facts** folder: the NATO phonetic alphabet, Roman numerals, emergency numbers and first aid, time and calendar, math, science and geography, food safety temperatures and tech basics.
 - **Review tracking**: each card shows when it is next due. The editor shows its interval, ease, review count and history, and can reset its progress. Folders show progress (unseen, learning, young, mature) and upcoming reviews for the next week. The home screen shows today's due count, reviews done and your streak.
-- **New cards per day**: limits how many new cards Study Now adds each day, separately for each top-level deck. The default is 20, and you can change it in Settings.
+- **Study any time**: Study Now always works. When nothing is due, it goes through all the cards again, as often as you like, without messing up the schedule. There's no daily limit on new cards unless you set one in Settings.
 - **Formatting**: card text supports `**bold**`, `` `code` ``, `## headings`, `- bullets` and fenced code blocks, with C++ syntax coloring.
 - **Saved automatically**: everything is stored on the device in IndexedDB and is still there when you reopen the app.
 - **Backup**: export all your data to a `.json` file, through the share sheet to Files or iCloud. You can import it again later, merging with or replacing what's there.
