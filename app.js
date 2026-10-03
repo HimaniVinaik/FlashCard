@@ -219,7 +219,12 @@ const PACKS = [
     about: 'LeetCode Top Interview 150, as an LC folder grouped by topic' },
   { id: 'spanish500', global: 'SPANISH500', base: 'decks/spanish/', count: 529, label: 'Spanish', added: 'Added the Spanish deck: 529 beginner words',
     about: '529 beginner words with example sentences, as a Spanish folder' },
+  { id: 'conversions', global: 'CONVERSIONS', base: 'decks/conversions/', count: 52, label: 'Conversions', added: 'Added the Conversions deck: 52 cards',
+    about: 'Miles to km, pounds to kg, cups, gallons, °F to °C and more' },
+  { id: 'useful', global: 'USEFUL', base: 'decks/useful/', count: 112, label: 'Useful Facts', added: 'Added the Useful Facts deck: 112 cards',
+    about: 'NATO alphabet, Roman numerals, first aid, math, science and more' },
 ];
+const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6' };
 const packPromises = {};
 function loadPack(def) {
   if (!packPromises[def.id]) {
@@ -1753,7 +1758,7 @@ Views.settings = (r) => {
           onchange: (e) => { Store.data.settings.newPerDay = Number(e.target.value); Store.save(); toast('Saved'); },
         }, [5, 10, 15, 20, 30, 50, 100, 9999].map((n) =>
           h('option', { value: String(n), selected: Number(Store.data.settings.newPerDay) === n }, n === 9999 ? 'No limit' : String(n))))),
-      PACKS.map((def) => row('cards', def.id === 'lc150' ? '#ff9500' : '#ff2d55', `Add ${def.label} Deck`, def.about, async () => {
+      PACKS.map((def) => row('cards', PACK_COLORS[def.id] || '#8e8e93', `Add ${def.label} Deck`, def.about, async () => {
         let deck;
         try {
           deck = await loadPack(def);
@@ -1771,7 +1776,7 @@ Views.settings = (r) => {
         render('none');
       }))),
     h('div', { class: 'section-footer' },
-      'Study Now shows the cards that are due, plus up to this many new cards per deck each day (LC and Spanish each get their own allowance). Cards you get right come back after longer and longer gaps.'),
+      'Study Now shows the cards that are due, plus up to this many new cards per deck each day (each deck gets its own allowance). Cards you get right come back after longer and longer gaps.'),
 
     h('div', { class: 'section-header' }, 'Backup'),
     h('div', { class: 'list' },
