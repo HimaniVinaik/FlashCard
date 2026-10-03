@@ -883,3 +883,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .meter .meter-young { background: var(--young); }
 .stat.young .stat-num { color: var(--young); }
 .meter .meter-learn { background: var(--learn); }
+
+/* Short formatted cards, such as vocabulary: large and centered */
+.rich.center { text-align: center; font-family: var(--font-round); font-size: 20px; line-height: 1.4; }
+.rich.center > p:first-child strong:first-child { font-size: 32px; margin-bottom: 4px; }
+.rich.center p + p { color: var(--text-2); }

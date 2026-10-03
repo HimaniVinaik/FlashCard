@@ -192,7 +192,11 @@ function normalizeData(d) {
   if (d.days && typeof d.days === 'object') {
     for (const [k, v] of Object.entries(d.days)) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v && typeof v === 'object') {
-        days[k] = { reviews: Number(v.reviews) || 0, newSeen: Number(v.newSeen) || 0, practice: Number(v.practice) || 0 };
+        const newByRoot = {};
+        if (v.newByRoot && typeof v.newByRoot === 'object') {
+          for (const [rk, rv] of Object.entries(v.newByRoot)) newByRoot[rk] = Number(rv) || 0;
+        }
+        days[k] = { reviews: Number(v.reviews) || 0, newSeen: Number(v.newSeen) || 0, practice: Number(v.practice) || 0, newByRoot };
       }
     }
   }
@@ -209,24 +213,32 @@ function loadScript(src) {
     document.head.append(s);
   });
 }
-let lcPromise = null;
-function loadLC150() {
-  if (!lcPromise) {
-    lcPromise = (async () => {
-      if (!window.LC150) await loadScript('decks/lc150/index.js');
-      for (const part of window.LC150.parts) await loadScript('decks/lc150/' + part);
-      if (window.LC150.problems.length !== 150) throw new Error('LC deck is incomplete');
-      return window.LC150;
+/** Built-in decks. Each is installed once, automatically, and can be re-added from Settings. */
+const PACKS = [
+  { id: 'lc150', global: 'LC150', base: 'decks/lc150/', count: 150, label: 'LC 150', added: 'Added the LC deck: 150 interview problems',
+    about: 'LeetCode Top Interview 150, as an LC folder grouped by topic' },
+  { id: 'spanish500', global: 'SPANISH500', base: 'decks/spanish/', count: 529, label: 'Spanish', added: 'Added the Spanish deck: 529 beginner words',
+    about: '529 beginner words with example sentences, as a Spanish folder' },
+];
+const packPromises = {};
+function loadPack(def) {
+  if (!packPromises[def.id]) {
+    packPromises[def.id] = (async () => {
+      if (!window[def.global]) await loadScript(def.base + 'index.js');
+      const deck = window[def.global];
+      for (const part of deck.parts || []) await loadScript(def.base + part);
+      if (deck.problems.length !== def.count) throw new Error(`${def.label} deck is incomplete`);
+      return deck;
     })().catch((e) => {
-      lcPromise = null;
-      window.LC150 = undefined;
+      delete packPromises[def.id];
+      window[def.global] = undefined;
       throw e;
     });
   }
-  return lcPromise;
+  return packPromises[def.id];
 }
-/** Adds the LC folder, one subfolder per topic and all 150 cards. */
-function installLC150(deck) {
+/** Adds a deck's folder, one subfolder per topic, and all its cards. */
+function installDeck(deck) {
   const t = now();
   const root = { id: uid(), name: deck.name, parentId: null, createdAt: t };
   Store.data.folders.push(root);
@@ -245,18 +257,20 @@ function installLC150(deck) {
   if (!Store.data.packs.includes(deck.id)) Store.data.packs.push(deck.id);
   return root;
 }
-/** Installs the LC deck once, the first time the app runs with this version. */
+/** Installs each built-in deck once, the first time the app runs with a version that has it. */
 async function ensurePacks() {
-  if (Store.data.packs.includes('lc150')) return;
-  try {
-    const deck = await loadLC150();
-    if (Store.data.packs.includes('lc150')) return;
-    installLC150(deck);
-    await Store.flush();
-    render('none');
-    toast('Added the LC deck: 150 interview problems');
-  } catch (e) {
-    console.warn('LC deck not installed yet', e);
+  for (const def of PACKS) {
+    if (Store.data.packs.includes(def.id)) continue;
+    try {
+      const deck = await loadPack(def);
+      if (Store.data.packs.includes(def.id)) continue;
+      installDeck(deck);
+      await Store.flush();
+      render('none');
+      toast(def.added);
+    } catch (e) {
+      console.warn(`${def.label} deck not installed yet`, e);
+    }
   }
 }
 
@@ -383,15 +397,27 @@ function dayKey(t = now()) {
   const d = new Date(t);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function dayLog(t) { return Store.data.days[dayKey(t)] || { reviews: 0, newSeen: 0, practice: 0 }; }
-function logStudy(field) {
+function dayLog(t) { return Store.data.days[dayKey(t)] || { reviews: 0, newSeen: 0, practice: 0, newByRoot: {} }; }
+function logStudy(field, rootId) {
   const k = dayKey();
-  const d = Store.data.days[k] || (Store.data.days[k] = { reviews: 0, newSeen: 0, practice: 0 });
+  const d = Store.data.days[k] || (Store.data.days[k] = { reviews: 0, newSeen: 0, practice: 0, newByRoot: {} });
   d[field] = (d[field] || 0) + 1;
+  if (field === 'newSeen' && rootId) {
+    d.newByRoot = d.newByRoot || {};
+    d.newByRoot[rootId] = (d.newByRoot[rootId] || 0) + 1;
+  }
 }
-function newLeftToday() {
+/** The top-level folder (deck) that a folder belongs to. */
+function rootOf(folderId) {
+  let f = Model.folder(folderId);
+  for (let guard = 0; f && f.parentId && guard < 100; guard++) f = Model.folder(f.parentId) || f;
+  return f ? f.id : folderId;
+}
+/** New cards still allowed today. The limit applies to each top-level deck separately, like Anki. */
+function newLeftToday(rootId) {
   const limit = Number(Store.data.settings.newPerDay);
-  return Math.max(0, limit - dayLog().newSeen);
+  const seen = ((dayLog().newByRoot || {})[rootId]) || 0;
+  return Math.max(0, limit - seen);
 }
 /** Consecutive days with any study, ending today (or yesterday if today has none yet). */
 function studyStreak() {
@@ -407,15 +433,25 @@ function studyStreak() {
 function stats(cards) {
   const t = now();
   let fresh = 0, due = 0, learning = 0, young = 0, mature = 0;
+  const freshByRoot = new Map();
+  const roots = new Map(); // folderId -> root id, cached for this call
   cards.forEach((c) => {
     const s = c.srs;
-    if (s.state === 'new') { fresh++; return; }
+    if (s.state === 'new') {
+      fresh++;
+      if (!roots.has(c.folderId)) roots.set(c.folderId, rootOf(c.folderId));
+      const r = roots.get(c.folderId);
+      freshByRoot.set(r, (freshByRoot.get(r) || 0) + 1);
+      return;
+    }
     if (s.due <= t) due++;
     if (s.state === 'learn') learning++;
     else if (s.interval >= MATURE_DAYS) mature++;
     else young++;
   });
-  return { total: cards.length, new: fresh, newToday: Math.min(fresh, newLeftToday()), due, learning, young, mature };
+  let newToday = 0;
+  freshByRoot.forEach((n, r) => { newToday += Math.min(n, newLeftToday(r)); });
+  return { total: cards.length, new: fresh, newToday, due, learning, young, mature };
 }
 
 /** Number of cards due on each of the next `days` days (index 0 = today, including overdue). */
@@ -1442,7 +1478,7 @@ function buildSession(folderId, mode) {
     const learn = cards.filter((c) => c.srs.state === 'learn' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
     const review = cards.filter((c) => c.srs.state === 'review' && c.srs.due <= t).sort((a, b) => a.srs.due - b.srs.due);
     const fresh = cards.filter((c) => c.srs.state === 'new').sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, newLeftToday()); // daily limit on new cards, like Anki
+      .slice(0, newLeftToday(rootOf(folderId))); // daily limit on new cards per deck, like Anki
     queue = [...learn, ...review, ...fresh].map((c) => c.id);
   }
   return { queue, done: 0, flipped: false, mode };
@@ -1453,10 +1489,18 @@ function faceView(side, which) {
   const rich = isRich(text);
   // Short content is centered vertically; formatted (long) content starts at the top and scrolls.
   const inner = h('div', { class: 'face-inner', style: { margin: rich ? '0' : 'auto 0', display: 'flex', flexDirection: 'column', gap: '16px' } });
+  // Short formatted cards (just bold and paragraphs, like vocabulary) are shown large and centered.
+  const simple = rich && text.length < 300 && !/```|^#{1,3}\s|^\s*[-•]\s/m.test(text);
+  if (simple) inner.style.margin = 'auto 0';
   if (text) {
-    inner.append(rich
-      ? renderRich(side.text)
-      : h('div', { class: 'face-text' + (text.length > 140 || text.split('\n').length > 4 ? ' long' : '') }, side.text));
+    let el;
+    if (rich) {
+      el = renderRich(side.text);
+      if (simple) el.classList.add('center');
+    } else {
+      el = h('div', { class: 'face-text' + (text.length > 140 || text.split('\n').length > 4 ? ' long' : '') }, side.text);
+    }
+    inner.append(el);
   }
   if (side.strokes.length) inner.append(drawingView(side.strokes, 'face-drawing'));
   if (!text && !side.strokes.length) inner.append(h('div', { class: 'face-empty' }, 'Nothing on this side'));
@@ -1575,7 +1619,7 @@ Views.study = (r) => {
         const wasNew = card.srs.state === 'new';
         applyGrade(card.srs, g);
         logStudy('reviews');
-        if (wasNew) logStudy('newSeen');
+        if (wasNew) logStudy('newSeen', rootOf(card.folderId));
         Store.save();
       } else {
         logStudy('practice');
@@ -1656,9 +1700,11 @@ function importBackup() {
       incoming.folders.forEach((f) => { if (!fIds.has(f.id)) Store.data.folders.push(f); });
       incoming.cards.forEach((c) => { if (!cIds.has(c.id)) Store.data.cards.push(c); });
       for (const [k, v] of Object.entries(incoming.days)) {
-        const mine = Store.data.days[k] || { reviews: 0, newSeen: 0, practice: 0 };
+        const mine = Store.data.days[k] || { reviews: 0, newSeen: 0, practice: 0, newByRoot: {} };
+        const newByRoot = Object.assign({}, v.newByRoot);
+        for (const [rk, rv] of Object.entries(mine.newByRoot || {})) newByRoot[rk] = Math.max(rv, newByRoot[rk] || 0);
         Store.data.days[k] = {
-          reviews: Math.max(mine.reviews, v.reviews), newSeen: Math.max(mine.newSeen, v.newSeen), practice: Math.max(mine.practice, v.practice),
+          reviews: Math.max(mine.reviews, v.reviews), newSeen: Math.max(mine.newSeen, v.newSeen), practice: Math.max(mine.practice, v.practice), newByRoot,
         };
       }
     }
@@ -1707,23 +1753,25 @@ Views.settings = (r) => {
           onchange: (e) => { Store.data.settings.newPerDay = Number(e.target.value); Store.save(); toast('Saved'); },
         }, [5, 10, 15, 20, 30, 50, 100, 9999].map((n) =>
           h('option', { value: String(n), selected: Number(Store.data.settings.newPerDay) === n }, n === 9999 ? 'No limit' : String(n))))),
-      row('cards', '#ff9500', 'Add LC 150 Deck', 'Adds the LeetCode Top Interview 150 cards as a new LC folder', async () => {
-        const existing = Model.childFolders(null).some((f) => f.name === 'LC');
-        if (!(await confirmDialog('Add the LC deck?', existing
-          ? 'You already have an LC folder. This adds a second, fresh copy with all 150 cards.'
-          : 'This adds an LC folder with all 150 cards, grouped by topic.', 'Add'))) return;
+      PACKS.map((def) => row('cards', def.id === 'lc150' ? '#ff9500' : '#ff2d55', `Add ${def.label} Deck`, def.about, async () => {
+        let deck;
         try {
-          const deck = await loadLC150();
-          installLC150(deck);
-          await Store.flush();
-          toast('LC deck added');
-          render('none');
+          deck = await loadPack(def);
         } catch (e) {
           alertDialog({ title: 'Could not load the deck', message: 'Check your internet connection and try again.', actions: [{ label: 'OK', value: true, bold: true }] });
+          return;
         }
-      })),
+        const existing = Model.childFolders(null).some((f) => f.name === deck.name);
+        if (!(await confirmDialog(`Add the ${def.label} deck?`, existing
+          ? `You already have a ${deck.name} folder. This adds a second, fresh copy with all ${def.count} cards.`
+          : `This adds a ${deck.name} folder with all ${def.count} cards, grouped by topic.`, 'Add'))) return;
+        installDeck(deck);
+        await Store.flush();
+        toast(`${def.label} deck added`);
+        render('none');
+      }))),
     h('div', { class: 'section-footer' },
-      'Study Now shows the cards that are due, plus up to this many new cards each day. Cards you get right come back after longer and longer gaps.'),
+      'Study Now shows the cards that are due, plus up to this many new cards per deck each day (LC and Spanish each get their own allowance). Cards you get right come back after longer and longer gaps.'),
 
     h('div', { class: 'section-header' }, 'Backup'),
     h('div', { class: 'list' },
