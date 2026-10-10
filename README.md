@@ -16,6 +16,7 @@ A simple, elegant flash card web app for iPhone, inspired by AnkiMobile.
 - **Conversions deck**: 52 cards in a **Conversions** folder: length, weight, volume and cooking, temperature, area, speed and energy. US units are on the front, metric on the back.
 - **Useful Facts deck**: 112 cards in a **Useful Facts** folder: the NATO phonetic alphabet, Roman numerals, emergency numbers and first aid, time and calendar, math, science and geography, food safety temperatures and tech basics.
 - **More Conversions deck**: 100 cards in a **More Conversions** folder, going the other way: metric on the front, US on the back (liters to gallons, mL to fluid ounces, km to miles, kg to pounds, °C to °F). Also metric prefixes, kitchen weights in grams, everyday math (wages, fractions, minutes to hours, internet speed) and paper and screen sizes.
+- **Geography deck**: 383 cards in a **Geography** folder: capitals of all 193 UN member countries plus Vatican City (grouped by continent), all 50 US state capitals, 50 world landmarks, oceans, rivers, lakes, seas, straits and canals, mountains and deserts, and country and world facts.
 - **Review tracking**: each card shows when it is next due. The editor shows its interval, ease, review count and history, and can reset its progress. Folders show progress (unseen, learning, young, mature) and upcoming reviews for the next week. The home screen shows today's due count, reviews done and your streak.
 - **Study any time**: Study Now always works. When nothing is due, it goes through all the cards again, as often as you like, without messing up the schedule. There's no daily limit on new cards unless you set one in Settings.
 - **Formatting**: card text supports `**bold**`, `` `code` ``, `## headings`, `- bullets` and fenced code blocks, with C++ syntax coloring.
@@ -54,5 +55,5 @@ Installing to the Home Screen matters on iPhone. iOS can clear website data that
 | `manifest.webmanifest`, `icons/` | Home Screen install metadata and icons |
 | `decks/lc150/` | The LC 150 deck: problems, solutions and the card builder |
 | `decks/spanish/` | The Spanish vocabulary deck (`node tests/spanish.js` validates it) |
-| `decks/conversions/`, `decks/more-conversions/`, `decks/useful/` | The Conversions, More Conversions and Useful Facts decks (`node tests/facts.js` validates them) |
+| `decks/conversions/`, `decks/more-conversions/`, `decks/useful/`, `decks/geography/` | The Conversions, More Conversions, Useful Facts and Geography decks (`node tests/facts.js` validates them) |
 | `tests/` | Compiles and runs every C++ solution against its examples and checks the readability rules (`node tests/run.js`) |

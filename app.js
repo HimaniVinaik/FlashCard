@@ -237,8 +237,11 @@ const PACKS = [
   { id: 'more-conversions', global: 'MORE_CONVERSIONS', base: 'decks/more-conversions/', count: 100, label: 'More Conversions',
     added: 'Added the More Conversions deck: 100 cards',
     about: 'Metric to US (liters to gallons, km to miles, °C to °F), metric prefixes, kitchen weights, everyday math' },
+  { id: 'geography', global: 'GEOGRAPHY', base: 'decks/geography/', count: 383, label: 'Geography',
+    added: 'Added the Geography deck: 383 cards',
+    about: 'World and US state capitals, landmarks, oceans, rivers, lakes, mountains, deserts and world facts' },
 ];
-const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6', 'more-conversions': '#34c759' };
+const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6', 'more-conversions': '#34c759', geography: '#af52de' };
 const packPromises = {};
 function loadPack(def) {
   if (!packPromises[def.id]) {

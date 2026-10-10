@@ -1,6 +1,6 @@
 // Service worker: caches the app shell so FlashCard opens offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = 'flashcard-v7';
+const VERSION = 'flashcard-v8';
 const SHELL = [
   './',
   './index.html',
@@ -21,7 +21,8 @@ const SHELL = [
   './decks/spanish/index.js',
   './decks/conversions/index.js',
   './decks/useful/index.js',
-  './decks/more-conversions/index.js'
+  './decks/more-conversions/index.js',
+  './decks/geography/index.js'
 ];
 
 self.addEventListener('install', (event) => {

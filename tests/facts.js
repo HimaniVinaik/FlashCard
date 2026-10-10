@@ -2,7 +2,7 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const load = (dir, g) => { const c = { window: {} }; vm.createContext(c); vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'decks', dir, 'index.js'), 'utf8'), c); return c.window[g]; };
 const errs = [];
-for (const [dir, g] of [['conversions', 'CONVERSIONS'], ['useful', 'USEFUL'], ['more-conversions', 'MORE_CONVERSIONS']]) {
+for (const [dir, g] of [['conversions', 'CONVERSIONS'], ['useful', 'USEFUL'], ['more-conversions', 'MORE_CONVERSIONS'], ['geography', 'GEOGRAPHY']]) {
   const d = load(dir, g), seen = new Set();
   d.problems.forEach((p, i) => {
     const id = `${g} #${i + 1} ${p.front}`;
@@ -68,6 +68,22 @@ const ftin = (cm) => { const inch = cm / F.in; return `${Math.floor(Math.round(i
 for (const cm of [170, 180]) { const p = more.find((x) => x.front === `${cm} cm`); if (!p.back.includes(ftin(cm))) errs.push(`${cm} cm: card ${p.back}, expected ${ftin(cm)}`); }
 const f18 = more.find((x) => x.front === '−18 °C'); if (Math.abs(C2F(-18)) > 0.5 || !/0 °F/.test(f18.back)) errs.push('−18 °C');
 console.log(`more-conversions numeric checks: ${moreChecks.length + 3}`);
+// Geography: every UN member + Vatican City exactly once, and all 50 US states.
+const geo = load('geography', 'GEOGRAPHY');
+const capTopics = geo.topics.map((t, k) => [t, k]).filter(([t]) => t.startsWith('Capitals:'));
+const expectCounts = { 'Capitals: Africa': 54, 'Capitals: Asia': 47, 'Capitals: Europe': 44, 'Capitals: North America': 23, 'Capitals: South America': 12, 'Capitals: Oceania': 14 };
+let countries = [];
+for (const [t, k] of capTopics) {
+  const list = geo.problems.filter((p) => p.k === k).map((p) => p.front);
+  if (list.length !== expectCounts[t]) errs.push(`${t}: ${list.length} countries, expected ${expectCounts[t]}`);
+  countries = countries.concat(list);
+}
+if (new Set(countries).size !== 194) errs.push(`unique countries: ${new Set(countries).size}, expected 194`);
+const usK = geo.topics.indexOf('US State Capitals');
+const states = geo.problems.filter((p) => p.k === usK);
+if (new Set(states.map((p) => p.front)).size !== 50) errs.push(`US states: ${states.length}`);
+for (const p of geo.problems) if (/^\s*[-•#]\s/.test(p.back) || !p.back) errs.push(`geography: bad back for ${p.front}`);
+console.log(`geography: ${countries.length} countries, ${states.length} US states`);
 const s = conv.find((x) => x.front === '1 stone'); if (!/6\.35/.test(s.back)) errs.push('stone kg');
 const t = conv.find((x) => x.front === '1 US ton'); if (!/907/.test(t.back)) errs.push('ton kg');
 const nato = load('useful', 'USEFUL').problems.filter((p) => p.k === 0 && /^[A-Z]$/.test(p.front));
