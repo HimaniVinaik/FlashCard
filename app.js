@@ -240,8 +240,11 @@ const PACKS = [
   { id: 'geography', global: 'GEOGRAPHY', base: 'decks/geography/', count: 383, label: 'Geography',
     added: 'Added the Geography deck: 383 cards',
     about: 'World and US state capitals, landmarks, oceans, rivers, lakes, mountains, deserts and world facts' },
+  { id: 'japanese', global: 'JAPANESE', base: 'decks/japanese/', count: 237, version: 1, label: 'Japanese',
+    added: 'Added the Japanese travel deck: 237 phrases',
+    about: 'Travel phrases: taxis, airport, trains, directions, hotel, ordering food, shopping, help and etiquette' },
 ];
-const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6', 'more-conversions': '#34c759', geography: '#af52de' };
+const PACK_COLORS = { lc150: '#ff9500', spanish500: '#ff2d55', conversions: '#30b0c7', useful: '#5856d6', 'more-conversions': '#34c759', geography: '#af52de', japanese: '#ff3b30' };
 const packPromises = {};
 function loadPack(def) {
   if (!packPromises[def.id]) {
