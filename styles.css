@@ -593,6 +593,34 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text-3);
 }
 .face-tag.back-tag { color: var(--accent); }
+.speak-btns {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+}
+.speak-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s, background .15s;
+}
+.face.has-speak .face-body { padding-top: 56px; }
+.speak-btn svg { width: 22px; height: 22px; }
+.speak-btn:active { transform: scale(.9); }
+.speak-btn.speaking { background: var(--accent); color: #fff; animation: speak-pulse 1s ease-in-out infinite; }
+@keyframes speak-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); } }
 .face-body {
   flex: 1;
   overflow-y: auto;

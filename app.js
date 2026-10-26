@@ -54,6 +54,7 @@ const ICONS = {
   importI: svg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/>'),
   shield: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'),
   info: svg('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>'),
+  speaker: svg('<path d="M11 5L6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'),
 };
 const icon = (name, cls) => h('span', { class: cls || 'icon', svg: ICONS[name] });
 
@@ -150,7 +151,7 @@ function normalizeSrs(s) {
   return o;
 }
 const HISTORY_MAX = 30;
-const DEFAULT_SETTINGS = { newPerDay: 9999 }; // 9999 = no limit
+const DEFAULT_SETTINGS = { newPerDay: 9999, autoSpeak: false }; // 9999 = no limit
 
 function normalizeSide(s) {
   s = s && typeof s === 'object' ? s : {};
@@ -1569,7 +1570,139 @@ function buildSession(folderId, mode) {
   return { queue, done: 0, flipped: false, mode };
 }
 
-function faceView(side, which) {
+/* ----- Pronunciation (the phone's built-in voices, via the Web Speech API) ----- */
+const JA_CHARS = /[぀-ヿ㐀-鿿ｦ-ﾟ]/g;
+const LANG_CODES = { ja: ['ja-JP'], es: ['es-MX', 'es-US', 'es-ES'] }; // Duolingo teaches Latin American Spanish
+const LANG_NAMES = { ja: 'Japanese', es: 'Spanish' };
+// Readings for words a voice could read the wrong way on their own (例: 四 = yon, not shi; 押 = osu on a door).
+const JA_READINGS = {
+  '110番': 'ひゃくとおばん', '119番': 'ひゃくじゅうきゅうばん',
+  一: 'いち', 二: 'に', 三: 'さん', 四: 'よん', 五: 'ご', 六: 'ろく', 七: 'なな', 八: 'はち', 九: 'きゅう', 十: 'じゅう',
+  百: 'ひゃく', 千: 'せん', 一万: 'いちまん', 円: 'えん', '＿＿時': 'じ',
+  今: 'いま', 今日: 'きょう', 明日: 'あした', 昨日: 'きのう', 朝: 'あさ', 夜: 'よる',
+  押: 'おす', 引: 'ひく', 右: 'みぎ', 左: 'ひだり', 角: 'かど', 北: 'きた', 南: 'みなみ', 東: 'ひがし', 西: 'にし',
+  男: 'おとこ', 女: 'おんな', 魚: 'さかな', 卵: 'たまご', 水: 'みず', 麺: 'めん', 箸: 'はし', 鍵: 'かぎ', 駅: 'えき',
+  一人です: 'ひとりです', 二人です: 'ふたりです', 何名様ですか: 'なんめいさまですか',
+};
+const JA_PHRASE_READINGS = [[/何番線/g, 'なんばんせん'], [/何時/g, 'なんじ'], [/何ですか/g, 'なんですか']];
+
+/** Which language a card's back is in: 'ja', 'es' or null (nothing to pronounce). */
+function cardLang(card) {
+  if (card.deckRef && card.deckRef.startsWith('japanese:')) return 'ja';
+  const root = Model.folder(rootOf(card.folderId));
+  const name = root ? root.name : '';
+  if (/japan|日本/i.test(name)) return 'ja';
+  if (/spanish|español|espanol/i.test(name)) return 'es';
+  if ((card.back.text.match(JA_CHARS) || []).length >= 2) return 'ja';
+  return null;
+}
+
+function plainText(s) {
+  return s.replace(/```[\s\S]*?```/g, ' ').replace(/^#{1,3}\s+/gm, '').replace(/^\s*[-•]\s+/gm, '').replace(/\*\*|`/g, '').trim();
+}
+
+function readJapanese(text) {
+  return text.split(/\s*[／/]\s*/).map((part) => {
+    const bare = part.replace(/[？?！!。]+$/, '');
+    if (JA_READINGS[bare]) return JA_READINGS[bare] + part.slice(bare.length);
+    let out = part;
+    JA_PHRASE_READINGS.forEach(([re, kana]) => { out = out.replace(re, kana); });
+    return out;
+  }).join('、 ').replace(/[＿_]+/g, '、').replace(/^[、\s]+/, '');
+}
+
+/** The text to say for a card's back, as a list of phrases spoken one after another. */
+function speechParts(text, lang) {
+  const paras = text.split(/\n\s*\n/).map(plainText).filter(Boolean);
+  if (lang === 'ja') {
+    // The line in Japanese script, not the romaji above it or the English tip below it.
+    const ja = paras.find((p) => (p.match(JA_CHARS) || []).length > (p.match(/[A-Za-z]/g) || []).length);
+    return ja ? [readJapanese(ja)] : [];
+  }
+  // Spanish: the word, then the example sentence.
+  return paras;
+}
+
+const Speech = {
+  supported: typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance !== 'undefined',
+  voices: [],
+  live: [], // keep utterances referenced; iOS can drop them mid-sentence otherwise
+  warned: {},
+  init() {
+    if (!this.supported) return;
+    const load = () => { this.voices = speechSynthesis.getVoices() || []; };
+    load();
+    if (speechSynthesis.addEventListener) speechSynthesis.addEventListener('voiceschanged', load);
+    else speechSynthesis.onvoiceschanged = load;
+  },
+  voiceFor(lang) {
+    if (!this.voices.length) this.voices = speechSynthesis.getVoices() || [];
+    const codes = LANG_CODES[lang];
+    const norm = (l) => String(l || '').replace('_', '-').toLowerCase();
+    const score = (v) => {
+      const l = norm(v.lang);
+      const id = `${v.voiceURI || ''} ${v.name || ''}`.toLowerCase();
+      let s = codes.findIndex((c) => c.toLowerCase() === l);
+      s = s < 0 ? 10 : s * 2; // a regional match beats any other voice in the language
+      if (/premium|enhanced|siri|google|neural|natural/.test(id)) s -= 3;
+      if (/eloquence|novelty|compact/.test(id)) s += 4; // robotic voices
+      if (v.localService === false) s += 1; // works offline
+      return s;
+    };
+    return this.voices.filter((v) => norm(v.lang).startsWith(lang)).sort((a, b) => score(a) - score(b))[0] || null;
+  },
+  stop() {
+    if (!this.supported) return;
+    this.live = [];
+    speechSynthesis.cancel();
+    document.querySelectorAll('.speak-btn.speaking').forEach((b) => b.classList.remove('speaking'));
+  },
+  speak(parts, lang, { slow = false, onend } = {}) {
+    if (!this.supported || !parts.length) return false;
+    this.stop();
+    if (speechSynthesis.paused) speechSynthesis.resume(); // Safari can get stuck paused
+    const voice = this.voiceFor(lang);
+    if (!voice && this.voices.length && !this.warned[lang]) {
+      this.warned[lang] = true;
+      toast(`No ${LANG_NAMES[lang]} voice found. Add one in Settings › Accessibility › Spoken Content › Voices.`);
+    }
+    const batch = parts.map((text, i) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = voice ? String(voice.lang).replace('_', '-') : LANG_CODES[lang][0];
+      if (voice) u.voice = voice;
+      u.rate = slow ? 0.55 : 0.85;
+      if (i === parts.length - 1) u.onend = u.onerror = () => { if (this.live === batch && onend) onend(); };
+      return u;
+    });
+    this.live = batch;
+    batch.forEach((u) => speechSynthesis.speak(u));
+    return true;
+  },
+};
+
+/** Speaker buttons (normal and slow) that read a card's back aloud. */
+function speakButtons(parts, lang) {
+  const wrap = h('div', { class: 'speak-btns' });
+  const btn = (slow) => {
+    const b = h('button', {
+      class: 'speak-btn' + (slow ? ' slow' : ''),
+      type: 'button',
+      'aria-label': `${slow ? 'Say it slowly' : 'Say it'} in ${LANG_NAMES[lang]}`,
+      title: slow ? 'Slowly' : 'Pronounce',
+      svg: slow ? null : ICONS.speaker,
+      onclick: (e) => {
+        e.stopPropagation(); // don't flip the card
+        if (Speech.speak(parts, lang, { slow, onend: () => b.classList.remove('speaking') })) b.classList.add('speaking');
+      },
+    });
+    if (slow) b.append(h('span', { 'aria-hidden': 'true' }, '🐢'));
+    return b;
+  };
+  wrap.append(btn(false), btn(true));
+  return wrap;
+}
+
+function faceView(side, which, extra) {
   const text = side.text.trim();
   const rich = isRich(text);
   // Short content is centered vertically; formatted (long) content starts at the top and scrolls.
@@ -1589,8 +1722,9 @@ function faceView(side, which) {
   }
   if (side.strokes.length) inner.append(drawingView(side.strokes, 'face-drawing'));
   if (!text && !side.strokes.length) inner.append(h('div', { class: 'face-empty' }, 'Nothing on this side'));
-  return h('div', { class: 'face ' + which },
+  return h('div', { class: 'face ' + which + (extra ? ' has-speak' : '') },
     h('div', { class: 'face-tag' + (which === 'back' ? ' back-tag' : '') }, which === 'front' ? 'Front' : 'Back'),
+    extra || null,
     h('div', { class: 'face-body' + (rich ? ' rich-body' : '') }, inner),
     which === 'front' && !rich ? h('div', { class: 'tap-hint' }, 'Tap to flip') : null);
 }
@@ -1654,6 +1788,12 @@ Views.study = (r) => {
       content.append(h('div', { class: 'counts' }, h('span', null, `${s.done + 1} / ${total}`)));
     }
 
+    // Spanish and Japanese cards get speaker buttons on the back.
+    Speech.stop();
+    const lang = Speech.supported ? cardLang(card) : null;
+    let speech = lang ? { lang, parts: speechParts(card.back.text, lang) } : null;
+    if (speech && !speech.parts.length) speech = null;
+
     // At rest the card is "flat" (no 3D transform) so long faces scroll reliably on iOS.
     // The 3D transform is only switched on while the flip animation runs.
     const flipCard = h('div', {
@@ -1661,7 +1801,7 @@ Views.study = (r) => {
       role: 'button',
       'aria-label': 'Flip card',
       onclick: () => flip(),
-    }, faceView(card.front, 'front'), faceView(card.back, 'back'));
+    }, faceView(card.front, 'front'), faceView(card.back, 'back', speech && speakButtons(speech.parts, speech.lang)));
     const scene = h('div', { class: 'flip-scene' + (enter ? ' enter' : '') }, flipCard);
     const answerBar = h('div', { class: 'answer-bar' });
     content.append(scene, answerBar);
@@ -1696,11 +1836,21 @@ Views.study = (r) => {
       const token = ++flipToken;
       setTimeout(() => { if (token === flipToken) flipCard.classList.add('flat'); }, 560);
       if (s.flipped && !s.revealed) { s.revealed = true; renderAnswerBar(); }
+      if (speech) {
+        if (s.flipped && Store.data.settings.autoSpeak) say(false);
+        else if (!s.flipped) Speech.stop();
+      }
+    }
+
+    function say(slow) {
+      const b = flipCard.querySelectorAll('.speak-btn')[slow ? 1 : 0];
+      if (b) b.click();
     }
 
     function grade(g) {
       if (graded) return; // ignore double taps while the card animates out
       graded = true;
+      Speech.stop();
       if (!practice) {
         const wasNew = card.srs.state === 'new';
         applyGrade(card.srs, g);
@@ -1723,6 +1873,7 @@ Views.study = (r) => {
     renderAnswerBar();
     keyHandler = (e) => {
       if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); return; }
+      if (speech && s.flipped && (e.key === 'p' || e.key === 'P')) { say(e.key === 'P'); return; }
       if (!s.revealed) return;
       const map = practice ? { 1: 'again', 2: 'good' } : { 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' };
       if (map[e.key]) grade(map[e.key]);
@@ -1842,6 +1993,18 @@ Views.settings = (r) => {
           onchange: (e) => { Store.data.settings.newPerDay = Number(e.target.value); Store.save(); toast('Saved'); },
         }, [5, 10, 15, 20, 30, 50, 100, 9999].map((n) =>
           h('option', { value: String(n), selected: Number(Store.data.settings.newPerDay) === n }, n === 9999 ? 'No limit' : String(n))))),
+      h('label', { class: 'row static' },
+        h('span', { class: 'row-icon', style: { background: '#ff9500' }, svg: ICONS.speaker }),
+        h('span', { class: 'row-main' }, h('div', { class: 'row-title' }, 'Speak answers'),
+          h('div', { class: 'row-sub' }, 'Spanish and Japanese cards')),
+        h('select', {
+          class: 'field',
+          style: { maxWidth: '40%' },
+          'aria-label': 'Speak answers',
+          onchange: (e) => { Store.data.settings.autoSpeak = e.target.value === 'auto'; Store.save(); toast('Saved'); },
+        },
+          h('option', { value: 'tap', selected: !Store.data.settings.autoSpeak }, 'When I tap 🔊'),
+          h('option', { value: 'auto', selected: !!Store.data.settings.autoSpeak }, 'Automatically'))),
       PACKS.map((def) => row('cards', PACK_COLORS[def.id] || '#8e8e93', `Add ${def.label} Deck`, def.about, async () => {
         let deck;
         try {
@@ -1894,6 +2057,7 @@ Views.settings = (r) => {
  * ===================================================================*/
 (async function boot() {
   await Store.load();
+  Speech.init();
   render('none');
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
